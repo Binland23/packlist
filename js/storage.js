@@ -411,6 +411,29 @@ const PackStore = (() => {
     return listAccessories().find((a) => a.id === id);
   }
 
+  function updateAccessory(id, patch) {
+    update((state) => {
+      const idx = state.accessories.findIndex((a) => a.id === id);
+      if (idx < 0) return;
+      const cur = state.accessories[idx];
+      const name = patch.name != null ? normalizeName(patch.name) : cur.name;
+      if (!name) return;
+      const duplicate = state.accessories.find(
+        (a) => a.id !== id && a.name.toLowerCase() === name.toLowerCase()
+      );
+      if (duplicate) return;
+      state.accessories[idx] = {
+        ...cur,
+        name,
+        category:
+          patch.category != null
+            ? String(patch.category).trim() || 'Other'
+            : cur.category,
+      };
+    });
+    return listAccessories().find((a) => a.id === id) || null;
+  }
+
   function deleteAccessory(id) {
     update((state) => {
       state.accessories = state.accessories.filter((a) => a.id !== id);
@@ -779,6 +802,7 @@ const PackStore = (() => {
     reorderStaples,
     listAccessories,
     addAccessory,
+    updateAccessory,
     deleteAccessory,
     listTrips,
     getTrip,

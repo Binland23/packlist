@@ -288,24 +288,30 @@
           if (!byCat.has(cat)) byCat.set(cat, []);
           byCat.get(cat).push(a);
         });
-        if (bank.length) {
-          pillsInner += `<p class="cat-group-label">Your bank</p>`;
-          PackStore.ACCESSORY_CAT_ORDER.concat(
-            [...byCat.keys()].filter((c) => !PackStore.ACCESSORY_CAT_ORDER.includes(c))
-          ).forEach((cat) => {
-            const list = byCat.get(cat);
-            if (!list?.length) return;
-            pillsInner += `<p class="cat-group-label subtle">${escapeHtml(cat)}</p><div class="cat-pills">${list
-              .map((a) => pillButton(a.name))
-              .join('')}</div>`;
-          });
-        } else {
-          pillsInner += `<p class="cat-empty">Your accessory bank is empty. Pick a suggestion or save a custom item.</p>`;
+        const suggestionGroups = ClothingCatalog.ACCESSORY_TABS;
+        const catOrder = PackStore.listAccessoryCategories();
+        const extraCats = [
+          ...Object.keys(suggestionGroups),
+          ...byCat.keys(),
+        ].filter((c) => !catOrder.includes(c));
+        const allCats = [...catOrder, ...extraCats];
+
+        if (!bank.length) {
+          pillsInner += `<p class="cat-empty">Add your own jewelry — “chunky gold necklace”, the pearl earrings — or tap a suggestion below.</p>`;
         }
-        Object.entries(ClothingCatalog.ACCESSORY_TABS).forEach(([group, names]) => {
-          pillsInner += `<p class="cat-group-label">${escapeHtml(group)}</p><div class="cat-pills">${names
-            .map((n) => pillButton(n))
-            .join('')}</div>`;
+
+        allCats.forEach((cat) => {
+          const list = byCat.get(cat) || [];
+          const suggestions = suggestionGroups[cat] || [];
+          if (!list.length && !suggestions.length) return;
+          pillsInner += `<p class="cat-group-label">${escapeHtml(cat)}</p>`;
+          if (list.length) {
+            pillsInner += `<div class="cat-pills">${list.map((a) => pillButton(a.name)).join('')}</div>`;
+          } else {
+            pillsInner += `<p class="cat-group-label subtle">Suggestions</p><div class="cat-pills">${suggestions
+              .map((n) => pillButton(n))
+              .join('')}</div>`;
+          }
         });
       } else {
         const pills = ClothingCatalog.pillsFor(gender, tab) || [];
@@ -349,14 +355,28 @@
           }
           <div class="cat-results">${pillsInner}</div>
           <div class="cat-custom">
-            <label for="cat-custom-input">Or type a custom item</label>
+            <label for="cat-custom-input">${
+              tab === 'Accessories' ? 'Add your own piece' : 'Or type a custom item'
+            }</label>
             <div class="input-row">
-              <input class="input" id="cat-custom-input" placeholder="e.g. White linen tee" autocomplete="off" />
+              <input class="input" id="cat-custom-input" placeholder="${
+                tab === 'Accessories' ? 'e.g. Chunky gold necklace' : 'e.g. White linen tee'
+              }" autocomplete="off" />
               <button type="button" class="btn btn-secondary" id="cat-custom-add" style="min-width:72px">Add</button>
             </div>
+            ${
+              tab === 'Accessories'
+                ? `<div class="field" style="margin-top:10px">
+                    <label for="cat-custom-cat">Save under</label>
+                    <select class="input" id="cat-custom-cat">
+                      ${optionHtml(PackStore.listAccessoryCategories(), 'Jewelry')}
+                    </select>
+                  </div>`
+                : ''
+            }
             <label class="check-inline">
               <input type="checkbox" id="cat-save-bank" ${tab === 'Accessories' ? 'checked' : ''} />
-              Also save to accessory bank
+              Save to my jewelry &amp; accessories
             </label>
           </div>
         </div>
@@ -406,7 +426,8 @@
         const name = customInput.value.trim();
         if (!name) return;
         const saveBank = $('#cat-save-bank', container)?.checked;
-        if (saveBank) PackStore.addAccessory({ name, category: 'Other' });
+        const category = $('#cat-custom-cat', container)?.value || (tab === 'Accessories' ? 'Jewelry' : 'Other');
+        if (saveBank) PackStore.addAccessory({ name, category });
         markPicked(name);
         if (onPick) onPick(name);
         customInput.value = '';
@@ -1111,7 +1132,7 @@
         <div class="empty">
           <p class="empty-kicker">Build your wardrobe</p>
           <h2>Save outfits you wear again</h2>
-          <p>Pick pieces from categories or your accessory bank. Photos are optional.</p>
+          <p>Pick clothes from categories, and your own jewelry from Accessories. Photos are optional.</p>
           <button type="button" class="btn btn-primary" id="empty-new-outfit">Add first outfit</button>
         </div>
       `;
@@ -1169,11 +1190,11 @@
     const accessories = PackStore.listAccessories();
     setChrome({
       title: 'Accessories',
-      eyebrow: 'Library',
+      eyebrow: 'Your pieces',
       showBack: false,
       action: {
         label: 'Add accessory',
-        onClick: () => showAddAccessory(),
+        onClick: () => showAccessoryEditor(),
       },
     });
 
@@ -1187,11 +1208,14 @@
     main.innerHTML = `
       ${closetSegments('accessories')}
       <div class="section">
-        ${hintHtml('accessories', 'Tap these when building outfits or adding extras to a day — no retyping.')}
+        ${hintHtml(
+          'accessories',
+          'Add your own jewelry here — chunky gold necklace, the pearl earrings — just like staples. Delete anything generic that isn’t yours. Tap a piece to rename it.'
+        )}
         <div id="accessories-list"></div>
       </div>
       <div class="sticky-cta">
-        <button type="button" class="btn btn-primary btn-block" id="add-accessory-btn">Add accessory</button>
+        <button type="button" class="btn btn-primary btn-block" id="add-accessory-btn">Add my piece</button>
       </div>
     `;
 
@@ -1202,13 +1226,13 @@
     if (!accessories.length) {
       list.innerHTML = `
         <div class="empty" style="padding-top:8px">
-          <h2 style="font-size:22px">No accessories yet</h2>
-          <p>Save earrings, bags, belts, and the rest. They show up as taps in the category picker.</p>
+          <h2 style="font-size:22px">Your jewelry lives here</h2>
+          <p>Add the pieces you actually own. They show up as taps when you build outfits or extras for a day — no generic “gold necklace.”</p>
         </div>
       `;
     } else {
-      const order = PackStore.ACCESSORY_CAT_ORDER.concat(
-        [...groups.keys()].filter((c) => !PackStore.ACCESSORY_CAT_ORDER.includes(c))
+      const order = PackStore.listAccessoryCategories().concat(
+        [...groups.keys()].filter((c) => !PackStore.listAccessoryCategories().includes(c))
       );
       order.forEach((cat) => {
         const items = groups.get(cat);
@@ -1222,14 +1246,19 @@
         const stack = $('.stack', section);
         items.forEach((a) => {
           const row = document.createElement('div');
-          row.className = 'staple-row';
+          row.className = 'staple-row library-row';
           row.innerHTML = `
-            <span class="name">${escapeHtml(a.name)}</span>
+            <button type="button" class="library-edit" aria-label="Edit ${escapeHtml(a.name)}">
+              <span class="name">${escapeHtml(a.name)}</span>
+              <span class="library-edit-hint">Edit</span>
+            </button>
             <button type="button" class="del" aria-label="Delete ${escapeHtml(a.name)}">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
             </button>
           `;
+          row.querySelector('.library-edit').onclick = () => showAccessoryEditor(a);
           row.querySelector('.del').onclick = () => {
+            if (!askConfirm(`Remove “${a.name}” from your list?`)) return;
             PackStore.deleteAccessory(a.id);
             toast('Accessory removed');
             render();
@@ -1240,37 +1269,55 @@
       });
     }
 
-    $('#add-accessory-btn').onclick = () => showAddAccessory();
+    $('#add-accessory-btn').onclick = () => showAccessoryEditor();
   }
 
-  function showAddAccessory() {
+  function showAccessoryEditor(accessory = null) {
+    const isEdit = !!accessory;
     openSheet(
-      'Add accessory',
+      isEdit ? 'Edit piece' : 'Add your piece',
       `
+      <p class="hint" style="margin:0 0 12px">${
+        isEdit
+          ? 'This name is what you’ll tap when building outfits or adding extras to a day.'
+          : 'Your actual jewelry and bags — not a generic “necklace”. Add “chunky gold necklace” once, then tap it anytime.'
+      }</p>
       <form id="accessory-form">
         <div class="field">
           <label for="accessory-name">Item</label>
-          <input class="input" id="accessory-name" placeholder="Gold hoop earrings" required autocomplete="off" />
+          <input class="input" id="accessory-name" placeholder="Chunky gold necklace" value="${
+            accessory ? escapeHtml(accessory.name) : ''
+          }" required autocomplete="off" />
         </div>
         <div class="field">
-          <label for="accessory-cat">Category</label>
+          <label for="accessory-cat">Group</label>
           <select class="input" id="accessory-cat">
-            ${optionHtml(PackStore.listAccessoryCategories(), 'Jewelry')}
+            ${optionHtml(PackStore.listAccessoryCategories(), accessory?.category || 'Jewelry')}
           </select>
         </div>
-        <button type="submit" class="btn btn-primary btn-block">Save to bank</button>
+        <button type="submit" class="btn btn-primary btn-block">${
+          isEdit ? 'Save changes' : 'Save to my list'
+        }</button>
       </form>
     `
     );
     $('#accessory-name').focus();
+    $('#accessory-name').select();
     $('#accessory-form').onsubmit = (e) => {
       e.preventDefault();
       const name = $('#accessory-name').value.trim();
       const category = $('#accessory-cat').value;
       if (!name) return;
+      if (isEdit) {
+        const saved = PackStore.updateAccessory(accessory.id, { name, category });
+        closeSheet();
+        toast(saved ? 'Updated' : 'That name is already on your list');
+        render();
+        return;
+      }
       PackStore.addAccessory({ name, category });
       closeSheet();
-      toast('Accessory saved');
+      toast('Saved to your list');
       render();
     };
   }
@@ -1512,7 +1559,7 @@
               <input class="input" id="item-input" placeholder="e.g. Gold hoop earrings" autocomplete="off" />
               <button type="button" class="btn btn-secondary" id="add-item-btn" style="min-width:72px">Add</button>
             </div>
-            <button type="button" class="browse-cats-btn" id="browse-cats">Browse categories & accessories</button>
+            <button type="button" class="browse-cats-btn" id="browse-cats">Browse clothes & my jewelry</button>
             <p class="hint">Base pieces live on the outfit. Add extras later on a specific day if you don’t want them every time.</p>
             <div class="items-editor" id="items-editor"></div>
           </div>
@@ -1785,12 +1832,13 @@
         {
           id: 'library',
           title: 'Library',
-          keywords: 'staple accessory category restore gloves bank',
+          keywords: 'staple accessory category restore gloves bank jewelry necklace earrings bracelet chunky gold customize pieces',
           html: () => `<div class="settings-list">
+            ${settingNav('your-accessories', 'Your jewelry & accessories', 'Add your own pieces — chunky gold necklace, pearl earrings, bags.')}
             ${settingNav('staple-cats', 'Staple categories', prefs.stapleCategories.join(', '))}
-            ${settingNav('accessory-cats', 'Accessory categories', prefs.accessoryCategories.join(', '))}
+            ${settingNav('accessory-cats', 'Accessory groups', 'Folders like Jewelry and Bags — not individual pieces.')}
             ${settingAction('restore-staples', 'Restore missing staples', 'Adds default items you deleted, like Gloves.')}
-            ${settingAction('restore-accessories', 'Restore missing accessories', 'Adds default bank items you deleted.')}
+            ${settingAction('restore-accessories', 'Restore starter accessories', 'Puts back the generic sample items if you deleted them.')}
           </div>`,
         },
         {
@@ -1820,7 +1868,7 @@
             <div class="settings-row">
               <div class="settings-row-copy">
                 <strong>Packlist</strong>
-                <span>Version 2 · Everything stays on this device. Clearing Safari site data erases it.</span>
+                <span>Version 3 · Everything stays on this device. Clearing Safari site data erases it.</span>
               </div>
             </div>
           </div>`,
@@ -1934,7 +1982,13 @@
         };
       });
       $$('[data-nav]', root).forEach((btn) => {
-        btn.onclick = () => showCategoryManager(btn.dataset.nav);
+        btn.onclick = () => {
+          if (btn.dataset.nav === 'your-accessories') {
+            navigate('accessories');
+            return;
+          }
+          showCategoryManager(btn.dataset.nav);
+        };
       });
       $$('[data-action]', root).forEach((btn) => {
         btn.onclick = () => runSettingAction(btn.dataset.action);
@@ -1962,13 +2016,17 @@
   function showCategoryManager(kind) {
     const isStaples = kind === 'staple-cats';
     const prefKey = isStaples ? 'stapleCategories' : 'accessoryCategories';
-    const title = isStaples ? 'Staple categories' : 'Accessory categories';
+    const title = isStaples ? 'Staple categories' : 'Accessory groups';
 
     function paintSheet() {
       const cats = PackStore.getPrefs()[prefKey];
       sheetTitle.textContent = title;
       sheetBody.innerHTML = `
-        <p class="hint" style="margin:0 0 12px">These show up when you add items. Existing items keep their current category if you remove one here.</p>
+        <p class="hint" style="margin:0 0 12px">${
+          isStaples
+            ? 'These show up when you add staples. Existing items keep their current category if you remove one here.'
+            : 'These are folders (Jewelry, Bags) — not individual pieces. Add “chunky gold necklace” under Your jewelry & accessories, not here.'
+        }</p>
         <div class="stack" id="cat-manage-list"></div>
         <form id="cat-manage-form" style="margin-top:16px">
           <div class="input-row">
