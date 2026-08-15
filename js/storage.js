@@ -15,11 +15,78 @@ const PackStore = (() => {
     { name: 'Underwear (per day + 1)', category: 'Basics' },
     { name: 'Socks (per day + 1)', category: 'Basics' },
     { name: 'Sleepwear', category: 'Basics' },
+    { name: 'Gloves', category: 'Basics' },
     { name: 'Phone charger', category: 'Tech' },
     { name: 'Headphones', category: 'Tech' },
     { name: 'Passport / ID', category: 'Documents' },
     { name: 'Wallet', category: 'Documents' },
   ];
+
+  const DEFAULT_ACCESSORIES = [
+    { name: 'Gold hoop earrings', category: 'Jewelry' },
+    { name: 'Stud earrings', category: 'Jewelry' },
+    { name: 'Everyday necklace', category: 'Jewelry' },
+    { name: 'Watch', category: 'Jewelry' },
+    { name: 'Belt', category: 'Other' },
+    { name: 'Sunglasses', category: 'Other' },
+    { name: 'Crossbody bag', category: 'Bags' },
+    { name: 'Tote bag', category: 'Bags' },
+    { name: 'Hair ties', category: 'Other' },
+    { name: 'Scarf', category: 'Other' },
+  ];
+
+  const STAPLE_CAT_ORDER = ['Toiletries', 'Basics', 'Tech', 'Documents', 'Other'];
+  const ACCESSORY_CAT_ORDER = ['Jewelry', 'Bags', 'Shoes', 'Other'];
+  const THEME_IDS = ['linen', 'midnight', 'harbor', 'ink', 'orchard', 'ember'];
+
+  const DEFAULT_PREFS = {
+    clothingGender: 'women',
+    theme: 'linen',
+    textSize: 'default',
+    compactLists: false,
+    reduceMotion: false,
+    defaultTripDays: 3,
+    hideEmptyDays: true,
+    showOutfitHeadings: true,
+    hidePackedItems: false,
+    confirmDeletes: true,
+    showPhotos: true,
+    startingTab: 'trips',
+    hiddenHints: {},
+    stapleCategories: STAPLE_CAT_ORDER.slice(),
+    accessoryCategories: ACCESSORY_CAT_ORDER.slice(),
+  };
+
+  function mergePrefs(raw) {
+    const p = raw && typeof raw === 'object' ? raw : {};
+    const hiddenHints = p.hiddenHints && typeof p.hiddenHints === 'object' ? { ...p.hiddenHints } : {};
+    const stapleCategories = Array.isArray(p.stapleCategories) && p.stapleCategories.length
+      ? p.stapleCategories.map((c) => String(c).trim()).filter(Boolean)
+      : STAPLE_CAT_ORDER.slice();
+    const accessoryCategories = Array.isArray(p.accessoryCategories) && p.accessoryCategories.length
+      ? p.accessoryCategories.map((c) => String(c).trim()).filter(Boolean)
+      : ACCESSORY_CAT_ORDER.slice();
+    const days = Math.max(1, Math.min(30, Number(p.defaultTripDays) || 3));
+    return {
+      ...DEFAULT_PREFS,
+      ...p,
+      clothingGender: p.clothingGender === 'men' ? 'men' : 'women',
+      theme: THEME_IDS.includes(p.theme) ? p.theme : 'linen',
+      textSize: ['default', 'large', 'xlarge'].includes(p.textSize) ? p.textSize : 'default',
+      compactLists: !!p.compactLists,
+      reduceMotion: !!p.reduceMotion,
+      defaultTripDays: days,
+      hideEmptyDays: p.hideEmptyDays !== false,
+      showOutfitHeadings: p.showOutfitHeadings !== false,
+      hidePackedItems: !!p.hidePackedItems,
+      confirmDeletes: p.confirmDeletes !== false,
+      showPhotos: p.showPhotos !== false,
+      startingTab: ['trips', 'outfits', 'staples', 'settings'].includes(p.startingTab) ? p.startingTab : 'trips',
+      hiddenHints,
+      stapleCategories,
+      accessoryCategories,
+    };
+  }
 
   function uid() {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -33,7 +100,49 @@ const PackStore = (() => {
         name: s.name,
         category: s.category,
       })),
+      accessories: DEFAULT_ACCESSORIES.map((s) => ({
+        id: uid(),
+        name: s.name,
+        category: s.category,
+      })),
       trips: [],
+      prefs: { ...DEFAULT_PREFS, hiddenHints: {}, stapleCategories: STAPLE_CAT_ORDER.slice(), accessoryCategories: ACCESSORY_CAT_ORDER.slice() },
+    };
+  }
+
+  function migratePacked(packed) {
+    if (!packed || typeof packed !== 'object') return {};
+    const next = {};
+    Object.keys(packed).forEach((key) => {
+      if (!packed[key]) return;
+      if (key.startsWith('cloth:')) next[`item:${key.slice(6)}`] = true;
+      else next[key] = true;
+    });
+    return next;
+  }
+
+  function migrateTrip(trip) {
+    return {
+      ...trip,
+      excludedStapleIds: Array.isArray(trip.excludedStapleIds) ? trip.excludedStapleIds : [],
+      extraStaples: Array.isArray(trip.extraStaples) ? trip.extraStaples : [],
+      packed: migratePacked(trip.packed),
+      days: (trip.days || []).map((d) => ({
+        ...d,
+        outfitIds: Array.isArray(d.outfitIds) ? d.outfitIds : [],
+        items: Array.isArray(d.items) ? d.items : [],
+      })),
+    };
+  }
+
+  function migrateState(parsed) {
+    const defaults = emptyState();
+    return {
+      outfits: Array.isArray(parsed.outfits) ? parsed.outfits : [],
+      staples: Array.isArray(parsed.staples) ? parsed.staples : defaults.staples,
+      accessories: Array.isArray(parsed.accessories) ? parsed.accessories : defaults.accessories,
+      trips: Array.isArray(parsed.trips) ? parsed.trips.map(migrateTrip) : [],
+      prefs: mergePrefs(parsed.prefs),
     };
   }
 
@@ -45,12 +154,7 @@ const PackStore = (() => {
         save(state);
         return state;
       }
-      const parsed = JSON.parse(raw);
-      return {
-        outfits: Array.isArray(parsed.outfits) ? parsed.outfits : [],
-        staples: Array.isArray(parsed.staples) ? parsed.staples : emptyState().staples,
-        trips: Array.isArray(parsed.trips) ? parsed.trips : [],
-      };
+      return migrateState(JSON.parse(raw));
     } catch {
       return emptyState();
     }
@@ -69,6 +173,110 @@ const PackStore = (() => {
     mutator(state);
     save(state);
     return state;
+  }
+
+  function getPrefs() {
+    return mergePrefs(load().prefs);
+  }
+
+  function setPref(key, value) {
+    update((state) => {
+      state.prefs = mergePrefs({ ...state.prefs, [key]: value });
+    });
+    return getPrefs();
+  }
+
+  function setPrefs(patch) {
+    update((state) => {
+      state.prefs = mergePrefs({ ...state.prefs, ...patch });
+    });
+    return getPrefs();
+  }
+
+  function isHintHidden(id) {
+    return !!getPrefs().hiddenHints[id];
+  }
+
+  function hideHint(id) {
+    const hiddenHints = { ...getPrefs().hiddenHints, [id]: true };
+    return setPref('hiddenHints', hiddenHints);
+  }
+
+  function resetHints() {
+    return setPref('hiddenHints', {});
+  }
+
+  function uniqueCats(preferred, extras) {
+    const seen = new Set();
+    const out = [];
+    [...preferred, ...extras].forEach((cat) => {
+      const name = String(cat || '').trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(name);
+    });
+    return out;
+  }
+
+  function listStapleCategories() {
+    const used = listStaples().map((s) => s.category);
+    load().trips.forEach((trip) => {
+      (trip.extraStaples || []).forEach((s) => used.push(s.category));
+    });
+    return uniqueCats(getPrefs().stapleCategories, used);
+  }
+
+  function listAccessoryCategories() {
+    const used = listAccessories().map((a) => a.category);
+    return uniqueCats(getPrefs().accessoryCategories, used);
+  }
+
+  function restoreMissingDefaults(kind) {
+    const source = kind === 'accessories' ? DEFAULT_ACCESSORIES : DEFAULT_STAPLES;
+    const existing = kind === 'accessories' ? listAccessories() : listStaples();
+    const have = new Set(existing.map((i) => i.name.toLowerCase()));
+    let added = 0;
+    source.forEach((item) => {
+      if (have.has(item.name.toLowerCase())) return;
+      if (kind === 'accessories') addAccessory(item);
+      else addStaple(item);
+      added += 1;
+    });
+    return added;
+  }
+
+  function exportBackup() {
+    return JSON.stringify(load(), null, 2);
+  }
+
+  function importBackup(raw) {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!parsed || typeof parsed !== 'object') throw new Error('Invalid backup');
+    save(migrateState(parsed));
+    return getState();
+  }
+
+  function clearAllPacked() {
+    update((state) => {
+      state.trips.forEach((trip) => {
+        trip.packed = {};
+      });
+    });
+  }
+
+  function resetAllData() {
+    save(emptyState());
+    return getState();
+  }
+
+  function normalizeName(name) {
+    return String(name || '').trim();
+  }
+
+  function itemKey(name) {
+    return `item:${normalizeName(name).toLowerCase()}`;
   }
 
   // ——— Outfits ———
@@ -136,7 +344,6 @@ const PackStore = (() => {
     const outfit = getOutfit(id);
     update((state) => {
       state.outfits = state.outfits.filter((o) => o.id !== id);
-      // Remove outfit refs from trips
       state.trips.forEach((trip) => {
         trip.days.forEach((day) => {
           day.outfitIds = (day.outfitIds || []).filter((oid) => oid !== id);
@@ -146,7 +353,7 @@ const PackStore = (() => {
     return outfit;
   }
 
-  // ——— Staples ———
+  // ——— Staples (global library) ———
   function listStaples() {
     return load().staples.slice();
   }
@@ -166,6 +373,9 @@ const PackStore = (() => {
   function deleteStaple(id) {
     update((state) => {
       state.staples = state.staples.filter((s) => s.id !== id);
+      state.trips.forEach((trip) => {
+        trip.excludedStapleIds = (trip.excludedStapleIds || []).filter((sid) => sid !== id);
+      });
     });
   }
 
@@ -178,30 +388,67 @@ const PackStore = (() => {
     });
   }
 
+  // ——— Accessories (reusable bank) ———
+  function listAccessories() {
+    return load().accessories.slice();
+  }
+
+  function addAccessory({ name, category }) {
+    const trimmed = normalizeName(name);
+    if (!trimmed) return null;
+    const existing = listAccessories().find(
+      (a) => a.name.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (existing) return existing;
+    const id = uid();
+    update((state) => {
+      state.accessories.push({
+        id,
+        name: trimmed,
+        category: (category || 'Other').trim() || 'Other',
+      });
+    });
+    return listAccessories().find((a) => a.id === id);
+  }
+
+  function deleteAccessory(id) {
+    update((state) => {
+      state.accessories = state.accessories.filter((a) => a.id !== id);
+    });
+  }
+
   // ——— Trips ———
   function listTrips() {
     return load().trips.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   }
 
   function getTrip(id) {
-    return load().trips.find((t) => t.id === id) || null;
+    const trip = load().trips.find((t) => t.id === id);
+    return trip ? migrateTrip(trip) : null;
+  }
+
+  function emptyDay(index) {
+    return {
+      id: uid(),
+      label: `Day ${index + 1}`,
+      outfitIds: [],
+      items: [],
+    };
   }
 
   function createTrip({ name, days }) {
     const id = uid();
     const now = Date.now();
     const dayCount = Math.max(1, Number(days) || 1);
-    const dayList = Array.from({ length: dayCount }, (_, i) => ({
-      id: uid(),
-      label: `Day ${i + 1}`,
-      outfitIds: [],
-    }));
+    const dayList = Array.from({ length: dayCount }, (_, i) => emptyDay(i));
     update((state) => {
       state.trips.unshift({
         id,
         name: (name || 'New trip').trim(),
         days: dayList,
         packed: {},
+        excludedStapleIds: [],
+        extraStaples: [],
         createdAt: now,
         updatedAt: now,
       });
@@ -237,12 +484,16 @@ const PackStore = (() => {
     let days = trip.days.slice();
     if (n > days.length) {
       for (let i = days.length; i < n; i++) {
-        days.push({ id: uid(), label: `Day ${i + 1}`, outfitIds: [] });
+        days.push(emptyDay(i));
       }
     } else if (n < days.length) {
       days = days.slice(0, n);
     }
-    days = days.map((d, i) => ({ ...d, label: d.label || `Day ${i + 1}` }));
+    days = days.map((d, i) => ({
+      ...d,
+      label: d.label || `Day ${i + 1}`,
+      items: Array.isArray(d.items) ? d.items : [],
+    }));
     return updateTrip(tripId, { days });
   }
 
@@ -267,96 +518,233 @@ const PackStore = (() => {
     return updateTrip(tripId, { days });
   }
 
-  function setPacked(tripId, itemKey, packed) {
+  function addItemToDay(tripId, dayId, { name }) {
+    const trip = getTrip(tripId);
+    if (!trip) return null;
+    const trimmed = normalizeName(name);
+    if (!trimmed) return trip;
+    const days = trip.days.map((d) => {
+      if (d.id !== dayId) return d;
+      const already = (d.items || []).some(
+        (item) => item.name.toLowerCase() === trimmed.toLowerCase()
+      );
+      if (already) return d;
+      return {
+        ...d,
+        items: [...(d.items || []), { id: uid(), name: trimmed }],
+      };
+    });
+    return updateTrip(tripId, { days });
+  }
+
+  function removeItemFromDay(tripId, dayId, itemId) {
+    const trip = getTrip(tripId);
+    if (!trip) return null;
+    const days = trip.days.map((d) => {
+      if (d.id !== dayId) return d;
+      return { ...d, items: (d.items || []).filter((item) => item.id !== itemId) };
+    });
+    return updateTrip(tripId, { days });
+  }
+
+  function namesMatch(a, b) {
+    return normalizeName(a).toLowerCase() === normalizeName(b).toLowerCase();
+  }
+
+  function getTripStaples(tripId) {
+    const state = load();
+    const trip = state.trips.find((t) => t.id === tripId);
+    if (!trip) return { active: [], hidden: [] };
+    const excluded = new Set(trip.excludedStapleIds || []);
+    const active = [
+      ...state.staples
+        .filter((s) => !excluded.has(s.id))
+        .map((s) => ({ ...s, source: 'global' })),
+      ...(trip.extraStaples || []).map((s) => ({ ...s, source: 'trip' })),
+    ];
+    const hidden = state.staples.filter((s) => excluded.has(s.id));
+    return { active, hidden };
+  }
+
+  function excludeStapleFromTrip(tripId, stapleId) {
+    const trip = getTrip(tripId);
+    if (!trip) return null;
+    if ((trip.excludedStapleIds || []).includes(stapleId)) return trip;
+    return updateTrip(tripId, {
+      excludedStapleIds: [...(trip.excludedStapleIds || []), stapleId],
+    });
+  }
+
+  function restoreStapleToTrip(tripId, stapleId) {
+    const trip = getTrip(tripId);
+    if (!trip) return null;
+    return updateTrip(tripId, {
+      excludedStapleIds: (trip.excludedStapleIds || []).filter((id) => id !== stapleId),
+    });
+  }
+
+  function addTripStaple(tripId, { name, category }) {
+    const state = load();
+    const trip = state.trips.find((t) => t.id === tripId);
+    if (!trip) return { trip: null, action: 'missing' };
+    const trimmed = normalizeName(name);
+    if (!trimmed) return { trip: getTrip(tripId), action: 'empty' };
+
+    const globalMatch = state.staples.find((s) => namesMatch(s.name, trimmed));
+    if (globalMatch) {
+      const excluded = new Set(trip.excludedStapleIds || []);
+      if (excluded.has(globalMatch.id)) {
+        restoreStapleToTrip(tripId, globalMatch.id);
+        return { trip: getTrip(tripId), action: 'restored', staple: globalMatch };
+      }
+      return { trip: getTrip(tripId), action: 'exists', staple: globalMatch };
+    }
+
+    const extraMatch = (trip.extraStaples || []).find((s) => namesMatch(s.name, trimmed));
+    if (extraMatch) return { trip: getTrip(tripId), action: 'exists', staple: extraMatch };
+
+    const extra = {
+      id: uid(),
+      name: trimmed,
+      category: (category || 'Other').trim() || 'Other',
+    };
+    updateTrip(tripId, { extraStaples: [...(trip.extraStaples || []), extra] });
+    return { trip: getTrip(tripId), action: 'added', staple: extra };
+  }
+
+  function removeTripStaple(tripId, stapleId, source) {
+    const trip = getTrip(tripId);
+    if (!trip) return null;
+    if (source === 'trip') {
+      return updateTrip(tripId, {
+        extraStaples: (trip.extraStaples || []).filter((s) => s.id !== stapleId),
+      });
+    }
+    return excludeStapleFromTrip(tripId, stapleId);
+  }
+
+  function setPacked(tripId, packedKey, packed) {
     const trip = getTrip(tripId);
     if (!trip) return null;
     const next = { ...(trip.packed || {}) };
-    if (packed) next[itemKey] = true;
-    else delete next[itemKey];
+    if (packed) next[packedKey] = true;
+    else delete next[packedKey];
     return updateTrip(tripId, { packed: next });
   }
 
-  /**
-   * Build packing list for a trip.
-   * Outfit items are de-duplicated by case-insensitive name but keep source labels.
-   * Staples always included.
-   */
-  function buildPackingList(tripId) {
-    const state = load();
-    const trip = state.trips.find((t) => t.id === tripId);
-    if (!trip) return { groups: [], total: 0, packedCount: 0 };
-
-    const outfitMap = new Map(state.outfits.map((o) => [o.id, o]));
-    const itemSources = new Map(); // lower name -> { name, sources: Set }
-
-    trip.days.forEach((day) => {
-      (day.outfitIds || []).forEach((oid) => {
-        const outfit = outfitMap.get(oid);
-        if (!outfit) return;
-        (outfit.items || []).forEach((item) => {
-          const key = item.toLowerCase();
-          if (!itemSources.has(key)) {
-            itemSources.set(key, { name: item, sources: new Set(), type: 'clothing' });
-          }
-          itemSources.get(key).sources.add(outfit.name);
-        });
-      });
-    });
-
-    const clothingItems = [...itemSources.values()]
-      .map((entry) => ({
-        key: `cloth:${entry.name.toLowerCase()}`,
-        name: entry.name,
-        note: [...entry.sources].join(', '),
-        type: 'clothing',
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    const staplesByCat = new Map();
-    state.staples.forEach((s) => {
-      const cat = s.category || 'Other';
-      if (!staplesByCat.has(cat)) staplesByCat.set(cat, []);
-      staplesByCat.get(cat).push({
-        key: `staple:${s.id}`,
-        name: s.name,
-        note: null,
-        type: 'staple',
-        category: cat,
-      });
-    });
-
-    const packed = trip.packed || {};
-    const groups = [];
-
-    if (clothingItems.length) {
-      groups.push({
-        id: 'clothing',
-        label: 'From outfits',
-        items: clothingItems.map((i) => ({ ...i, packed: !!packed[i.key] })),
-      });
-    }
-
-    // Stable category order
-    const catOrder = ['Toiletries', 'Basics', 'Tech', 'Documents', 'Other'];
-    const cats = [...staplesByCat.keys()].sort((a, b) => {
-      const ia = catOrder.indexOf(a);
-      const ib = catOrder.indexOf(b);
+  function sortCategories(cats, order) {
+    return cats.slice().sort((a, b) => {
+      const ia = order.indexOf(a);
+      const ib = order.indexOf(b);
       if (ia === -1 && ib === -1) return a.localeCompare(b);
       if (ia === -1) return 1;
       if (ib === -1) return -1;
       return ia - ib;
     });
+  }
 
-    cats.forEach((cat) => {
-      groups.push({
-        id: `cat-${cat}`,
-        label: cat,
-        items: staplesByCat.get(cat).map((i) => ({ ...i, packed: !!packed[i.key] })),
+  /**
+   * Build packing list for a trip.
+   * Outfit + day items expand per day (repeats shown again).
+   * Packed state is shared by item name across every day it appears.
+   * Staples are this trip's list (global minus removals, plus extras).
+   */
+  function buildPackingList(tripId) {
+    const state = load();
+    const trip = state.trips.find((t) => t.id === tripId);
+    if (!trip) return { dayGroups: [], stapleGroups: [], groups: [], total: 0, packedCount: 0 };
+
+    const outfitMap = new Map(state.outfits.map((o) => [o.id, o]));
+    const packed = trip.packed || {};
+    const unique = new Map();
+
+    function remember(key, name, type) {
+      if (!unique.has(key)) {
+        unique.set(key, { key, name, packed: !!packed[key], type });
+      }
+      return unique.get(key);
+    }
+
+    const dayGroups = (trip.days || []).map((day) => {
+      const outfits = (day.outfitIds || []).map((oid) => {
+        const outfit = outfitMap.get(oid);
+        if (!outfit) {
+          return { id: oid, name: 'Missing outfit', missing: true, items: [] };
+        }
+        const items = (outfit.items || []).map((name) => {
+          const key = itemKey(name);
+          const entry = remember(key, name, 'clothing');
+          return { key, name, packed: entry.packed, source: outfit.name };
+        });
+        return { id: outfit.id, name: outfit.name, missing: false, items };
       });
+
+      const extras = (day.items || []).map((item) => {
+        const key = itemKey(item.name);
+        const entry = remember(key, item.name, 'day');
+        return { id: item.id, key, name: item.name, packed: entry.packed };
+      });
+
+      return {
+        id: day.id,
+        label: day.label,
+        outfits,
+        extras,
+      };
     });
 
-    const all = groups.flatMap((g) => g.items);
+    const excluded = new Set(trip.excludedStapleIds || []);
+    const staplesByCat = new Map();
+
+    function pushStaple(staple, type) {
+      const cat = staple.category || 'Other';
+      const key = type === 'trip' ? `trip-staple:${staple.id}` : `staple:${staple.id}`;
+      remember(key, staple.name, 'staple');
+      if (!staplesByCat.has(cat)) staplesByCat.set(cat, []);
+      staplesByCat.get(cat).push({
+        key,
+        name: staple.name,
+        note: type === 'trip' ? 'This trip only' : null,
+        type: 'staple',
+        category: cat,
+        packed: !!packed[key],
+      });
+    }
+
+    state.staples.forEach((s) => {
+      if (!excluded.has(s.id)) pushStaple(s, 'global');
+    });
+    (trip.extraStaples || []).forEach((s) => pushStaple(s, 'trip'));
+
+    const stapleGroups = sortCategories([...staplesByCat.keys()], STAPLE_CAT_ORDER).map((cat) => ({
+      id: `cat-${cat}`,
+      label: cat,
+      items: staplesByCat.get(cat),
+    }));
+
+    // Flat groups kept for older callers / trip cards
+    const clothingFromDays = [];
+    dayGroups.forEach((day) => {
+      day.outfits.forEach((outfit) => clothingFromDays.push(...outfit.items));
+      clothingFromDays.push(...day.extras);
+    });
+    const groups = [];
+    if (clothingFromDays.length) {
+      const seen = new Set();
+      const uniqueClothing = [];
+      clothingFromDays.forEach((item) => {
+        if (seen.has(item.key)) return;
+        seen.add(item.key);
+        uniqueClothing.push({ ...item, packed: !!packed[item.key] });
+      });
+      groups.push({ id: 'clothing', label: 'From outfits', items: uniqueClothing });
+    }
+    stapleGroups.forEach((g) => groups.push(g));
+
+    const all = [...unique.values()];
     return {
+      dayGroups,
+      stapleGroups,
       groups,
       total: all.length,
       packedCount: all.filter((i) => i.packed).length,
@@ -366,6 +754,20 @@ const PackStore = (() => {
   return {
     uid,
     getState,
+    getPrefs,
+    setPref,
+    setPrefs,
+    isHintHidden,
+    hideHint,
+    resetHints,
+    listStapleCategories,
+    listAccessoryCategories,
+    restoreMissingDefaults,
+    exportBackup,
+    importBackup,
+    clearAllPacked,
+    resetAllData,
+    itemKey,
     listOutfits,
     getOutfit,
     createOutfit,
@@ -375,6 +777,9 @@ const PackStore = (() => {
     addStaple,
     deleteStaple,
     reorderStaples,
+    listAccessories,
+    addAccessory,
+    deleteAccessory,
     listTrips,
     getTrip,
     createTrip,
@@ -383,7 +788,16 @@ const PackStore = (() => {
     setTripDays,
     addOutfitToDay,
     removeOutfitFromDay,
+    addItemToDay,
+    removeItemFromDay,
+    getTripStaples,
+    excludeStapleFromTrip,
+    restoreStapleToTrip,
+    addTripStaple,
+    removeTripStaple,
     setPacked,
     buildPackingList,
+    STAPLE_CAT_ORDER,
+    ACCESSORY_CAT_ORDER,
   };
 })();

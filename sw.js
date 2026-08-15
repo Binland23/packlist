@@ -1,5 +1,5 @@
 // Bump CACHE_VERSION whenever any precached file changes.
-const CACHE_VERSION = 'packlist-v1';
+const CACHE_VERSION = 'packlist-v4';
 
 const PRECACHE = [
   './',
@@ -7,6 +7,7 @@ const PRECACHE = [
   'css/styles.css',
   'js/db.js',
   'js/storage.js',
+  'js/categories.js',
   'js/app.js',
   'manifest.json',
   'assets/icons/icon-192.png',

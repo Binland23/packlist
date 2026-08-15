@@ -44,6 +44,66 @@
     return `${n} ${n === 1 ? one : many}`;
   }
 
+  const CHECK_SVG =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
+  const BACK_SVG =
+    '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>';
+  const CHEV_SVG =
+    '<svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>';
+
+  const THEMES = [
+    { id: 'linen', name: 'Linen', note: 'Warm paper & terracotta', wash: '#F4EFE6', accent: '#C45C3E' },
+    { id: 'midnight', name: 'Midnight', note: 'Charcoal & amber', wash: '#141210', accent: '#D4A054' },
+    { id: 'harbor', name: 'Harbor', note: 'Sea glass & mist', wash: '#E4ECED', accent: '#2A6F6D' },
+    { id: 'ink', name: 'Ink', note: 'Cream & near-black', wash: '#F3F1EA', accent: '#12110F' },
+    { id: 'orchard', name: 'Orchard', note: 'Moss & cream', wash: '#EEF1E6', accent: '#4F6354' },
+    { id: 'ember', name: 'Ember', note: 'Espresso & rust', wash: '#1A1410', accent: '#C45C3E' },
+  ];
+
+  function applyAppearance(prefs = PackStore.getPrefs()) {
+    const root = document.documentElement;
+    root.dataset.theme = prefs.theme || 'linen';
+    root.dataset.size = prefs.textSize || 'default';
+    root.dataset.density = prefs.compactLists ? 'compact' : 'comfy';
+    root.dataset.reduce = prefs.reduceMotion ? '1' : '0';
+    const theme = THEMES.find((t) => t.id === prefs.theme) || THEMES[0];
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = theme.wash;
+  }
+
+  function askConfirm(msg) {
+    if (!PackStore.getPrefs().confirmDeletes) return true;
+    return confirm(msg);
+  }
+
+  function optionHtml(values, selected) {
+    return values
+      .map((v) => `<option${v === selected ? ' selected' : ''}>${escapeHtml(v)}</option>`)
+      .join('');
+  }
+
+  function hintHtml(id, text) {
+    if (PackStore.isHintHidden(id)) return '';
+    return `
+      <button type="button" class="page-hint" data-hint="${escapeHtml(id)}">
+        <span>${text}</span>
+        <span class="page-hint-dismiss">Tap to hide</span>
+      </button>
+    `;
+  }
+
+  function bindHints(root = main) {
+    $$('[data-hint]', root).forEach((btn) => {
+      btn.onclick = () => {
+        PackStore.hideHint(btn.dataset.hint);
+        btn.classList.add('hiding');
+        const remove = () => btn.remove();
+        btn.addEventListener('transitionend', remove, { once: true });
+        setTimeout(remove, 280);
+      };
+    });
+  }
+
   // ——— Routing ———
   function parseHash() {
     const raw = (location.hash || '#/trips').replace(/^#\/?/, '');
@@ -62,7 +122,9 @@
       return { name: 'outfit', params: { id: parts[1] } };
     }
     if (parts[0] === 'outfits') return { name: 'outfits', params: {} };
+    if (parts[0] === 'accessories') return { name: 'accessories', params: {} };
     if (parts[0] === 'staples') return { name: 'staples', params: {} };
+    if (parts[0] === 'settings') return { name: 'settings', params: {} };
     return { name: 'trips', params: {} };
   }
 
@@ -75,28 +137,54 @@
   function setChrome({ title, eyebrow, showBack, action }) {
     pageTitle.textContent = title;
     topEyebrow.textContent = eyebrow || 'Packlist';
-    backBtn.classList.toggle('hidden', !showBack);
+    backBtn.innerHTML = BACK_SVG;
+    backBtn.setAttribute('aria-label', 'Back');
+    if (showBack) {
+      backBtn.classList.remove('hidden', 'ghost-slot');
+    } else {
+      backBtn.classList.remove('hidden');
+      backBtn.classList.add('ghost-slot');
+      backBtn.onclick = null;
+    }
     if (action) {
       headerAction.hidden = false;
+      headerAction.classList.remove('ghost-slot');
       headerAction.setAttribute('aria-label', action.label || 'Add');
       headerAction.onclick = action.onClick;
     } else {
-      headerAction.hidden = true;
+      headerAction.hidden = false;
+      headerAction.classList.add('ghost-slot');
       headerAction.onclick = null;
     }
   }
 
   function syncTabs() {
-    const tabRoute = route.name === 'trip' || route.name === 'trips'
-      ? 'trips'
-      : route.name === 'outfit'
-        ? 'outfits'
-        : route.name;
+    const tabRoute =
+      route.name === 'trip' || route.name === 'trips'
+        ? 'trips'
+        : route.name === 'outfit' || route.name === 'outfits' || route.name === 'accessories'
+          ? 'outfits'
+          : route.name;
     $$('.tab', tabbar).forEach((tab) => {
       const active = tab.dataset.route === tabRoute;
       tab.classList.toggle('active', active);
       if (active) tab.setAttribute('aria-current', 'page');
       else tab.removeAttribute('aria-current');
+    });
+  }
+
+  function closetSegments(active) {
+    return `
+      <div class="segments" role="tablist">
+        <button type="button" class="segment${active === 'outfits' ? ' active' : ''}" data-closet="outfits">Outfits</button>
+        <button type="button" class="segment${active === 'accessories' ? ' active' : ''}" data-closet="accessories">Accessories</button>
+      </div>
+    `;
+  }
+
+  function bindClosetSegments() {
+    $$('[data-closet]').forEach((seg) => {
+      seg.onclick = () => navigate(seg.dataset.closet);
     });
   }
 
@@ -123,17 +211,6 @@
   sheetBackdrop.addEventListener('click', closeSheet);
 
   // ——— Photo helpers ———
-  async function photoImgHtml(photoId, className = '') {
-    if (!photoId) return null;
-    try {
-      const url = await PackDB.getObjectUrl(photoId);
-      if (!url) return null;
-      return `<img class="${className}" src="${url}" alt="" loading="lazy" />`;
-    } catch {
-      return null;
-    }
-  }
-
   async function fillPhotoSlots(root = document) {
     const slots = $$('[data-photo-id]', root);
     await Promise.all(
@@ -150,6 +227,207 @@
         }
       })
     );
+  }
+
+  // ——— Category picker ———
+  function mountCategoryPicker(container, { onPick, onBack, showBack = false } = {}) {
+    let gender = PackStore.getPrefs().clothingGender || 'women';
+    let tabs = ClothingCatalog.tabsFor(gender);
+    let tab = tabs[0];
+    let query = '';
+    const picked = new Set();
+
+    function markPicked(name) {
+      picked.add(name.toLowerCase());
+    }
+
+    function isPicked(name) {
+      return picked.has(name.toLowerCase());
+    }
+
+    function pillButton(name, group) {
+      const extra = group ? `<span class="cat-pill-group">${escapeHtml(group)}</span>` : '';
+      return `
+        <button type="button" class="cat-pill${isPicked(name) ? ' picked' : ''}" data-pick="${escapeHtml(name)}">
+          ${escapeHtml(name)}${extra}
+        </button>
+      `;
+    }
+
+    function paint() {
+      tabs = ClothingCatalog.tabsFor(gender);
+      if (!tabs.includes(tab)) tab = tabs[0];
+      const q = query.trim();
+      const searching = q.length > 0;
+
+      let pillsInner = '';
+      if (searching) {
+        const hits = ClothingCatalog.searchAll(gender, q);
+        const bankHits = PackStore.listAccessories().filter((a) =>
+          a.name.toLowerCase().includes(q.toLowerCase())
+        );
+        if (!hits.length && !bankHits.length) {
+          pillsInner = `<p class="cat-empty">No matches. Type a custom name below.</p>`;
+        } else {
+          if (bankHits.length) {
+            pillsInner += `<p class="cat-group-label">Your accessories</p><div class="cat-pills">${bankHits
+              .map((a) => pillButton(a.name, a.category))
+              .join('')}</div>`;
+          }
+          if (hits.length) {
+            pillsInner += `<p class="cat-group-label">Categories</p><div class="cat-pills">${hits
+              .map((h) => pillButton(h.name, h.group))
+              .join('')}</div>`;
+          }
+        }
+      } else if (tab === 'Accessories') {
+        const bank = PackStore.listAccessories();
+        const byCat = new Map();
+        bank.forEach((a) => {
+          const cat = a.category || 'Other';
+          if (!byCat.has(cat)) byCat.set(cat, []);
+          byCat.get(cat).push(a);
+        });
+        if (bank.length) {
+          pillsInner += `<p class="cat-group-label">Your bank</p>`;
+          PackStore.ACCESSORY_CAT_ORDER.concat(
+            [...byCat.keys()].filter((c) => !PackStore.ACCESSORY_CAT_ORDER.includes(c))
+          ).forEach((cat) => {
+            const list = byCat.get(cat);
+            if (!list?.length) return;
+            pillsInner += `<p class="cat-group-label subtle">${escapeHtml(cat)}</p><div class="cat-pills">${list
+              .map((a) => pillButton(a.name))
+              .join('')}</div>`;
+          });
+        } else {
+          pillsInner += `<p class="cat-empty">Your accessory bank is empty. Pick a suggestion or save a custom item.</p>`;
+        }
+        Object.entries(ClothingCatalog.ACCESSORY_TABS).forEach(([group, names]) => {
+          pillsInner += `<p class="cat-group-label">${escapeHtml(group)}</p><div class="cat-pills">${names
+            .map((n) => pillButton(n))
+            .join('')}</div>`;
+        });
+      } else {
+        const pills = ClothingCatalog.pillsFor(gender, tab) || [];
+        pillsInner = `<div class="cat-pills">${pills.map((n) => pillButton(n)).join('')}</div>`;
+      }
+
+      container.innerHTML = `
+        <div class="cat-picker">
+          ${
+            showBack
+              ? `<button type="button" class="text-back" id="cat-back">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+                  Back to outfit
+                </button>`
+              : ''
+          }
+          <h3 class="cat-picker-heading">Select a category</h3>
+          <div class="gender-toggle" role="tablist" aria-label="Clothing fit">
+            <button type="button" class="gender-btn${gender === 'women' ? ' active' : ''}" data-gender="women">Women</button>
+            <button type="button" class="gender-btn${gender === 'men' ? ' active' : ''}" data-gender="men">Men</button>
+          </div>
+          <div class="cat-search-wrap">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
+            <input class="input cat-search" id="cat-search" type="search" placeholder="Search categories" value="${escapeHtml(
+              query
+            )}" autocomplete="off" />
+          </div>
+          ${
+            searching
+              ? ''
+              : `<div class="cat-tabs" role="tablist">
+                  ${tabs
+                    .map(
+                      (t) =>
+                        `<button type="button" class="cat-tab${t === tab ? ' active' : ''}" data-tab="${escapeHtml(
+                          t
+                        )}" role="tab" aria-selected="${t === tab}">${escapeHtml(t)}</button>`
+                    )
+                    .join('')}
+                </div>`
+          }
+          <div class="cat-results">${pillsInner}</div>
+          <div class="cat-custom">
+            <label for="cat-custom-input">Or type a custom item</label>
+            <div class="input-row">
+              <input class="input" id="cat-custom-input" placeholder="e.g. White linen tee" autocomplete="off" />
+              <button type="button" class="btn btn-secondary" id="cat-custom-add" style="min-width:72px">Add</button>
+            </div>
+            <label class="check-inline">
+              <input type="checkbox" id="cat-save-bank" ${tab === 'Accessories' ? 'checked' : ''} />
+              Also save to accessory bank
+            </label>
+          </div>
+        </div>
+      `;
+
+      if (showBack) $('#cat-back', container).onclick = () => onBack && onBack();
+
+      $$('[data-gender]', container).forEach((btn) => {
+        btn.onclick = () => {
+          gender = btn.dataset.gender;
+          PackStore.setPref('clothingGender', gender);
+          tab = ClothingCatalog.tabsFor(gender)[0];
+          paint();
+        };
+      });
+
+      $$('[data-tab]', container).forEach((btn) => {
+        btn.onclick = () => {
+          tab = btn.dataset.tab;
+          paint();
+        };
+      });
+
+      $$('[data-pick]', container).forEach((btn) => {
+        btn.onclick = () => {
+          const name = btn.dataset.pick;
+          markPicked(name);
+          btn.classList.add('picked');
+          if (onPick) onPick(name);
+        };
+      });
+
+      const searchInput = $('#cat-search', container);
+      searchInput.oninput = () => {
+        query = searchInput.value;
+        paint();
+        const next = $('#cat-search', container);
+        if (next) {
+          next.focus();
+          const len = next.value.length;
+          next.setSelectionRange(len, len);
+        }
+      };
+
+      const customInput = $('#cat-custom-input', container);
+      const addCustom = () => {
+        const name = customInput.value.trim();
+        if (!name) return;
+        const saveBank = $('#cat-save-bank', container)?.checked;
+        if (saveBank) PackStore.addAccessory({ name, category: 'Other' });
+        markPicked(name);
+        if (onPick) onPick(name);
+        customInput.value = '';
+        customInput.focus();
+        paint();
+      };
+      $('#cat-custom-add', container).onclick = addCustom;
+      customInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          addCustom();
+        }
+      });
+    }
+
+    paint();
+  }
+
+  function showCategoryPicker({ title, onPick, onClose } = {}) {
+    openSheet(title || 'Add item', '', { onClose });
+    mountCategoryPicker(sheetBody, { onPick });
   }
 
   // ——— Render: Trips list ———
@@ -170,7 +448,7 @@
         <div class="empty">
           <p class="empty-kicker">Start packing</p>
           <h2>Your next trip starts here</h2>
-          <p>Save outfits once, then pick them for each day. Staples come along automatically.</p>
+          <p>Save outfits once, then pick them for each day. Staples come along — drop anything this trip doesn’t need.</p>
           <button type="button" class="btn btn-primary" id="empty-new-trip">Plan a trip</button>
         </div>
       `;
@@ -180,6 +458,7 @@
 
     main.innerHTML = `
       <div class="section">
+        ${hintHtml('trips', 'Open a trip to plan days, add extras, and skip staples you don’t need this time.')}
         <div class="section-head">
           <h2 class="section-title">Upcoming & recent</h2>
           <span class="section-meta">${plural(trips.length, 'trip', 'trips')}</span>
@@ -195,14 +474,20 @@
     trips.forEach((trip) => {
       const pack = PackStore.buildPackingList(trip.id);
       const outfitCount = trip.days.reduce((n, d) => n + (d.outfitIds?.length || 0), 0);
+      const extraCount = trip.days.reduce((n, d) => n + (d.items?.length || 0), 0);
       const pct = pack.total ? Math.round((pack.packedCount / pack.total) * 100) : 0;
+      const extrasBit = extraCount ? ` · ${plural(extraCount, 'extra', 'extras')}` : '';
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'card pressable';
       btn.innerHTML = `
         <div class="card-body">
           <p class="card-title">${escapeHtml(trip.name)}</p>
-          <p class="card-sub">${plural(trip.days.length, 'day', 'days')} · ${plural(outfitCount, 'outfit', 'outfits')} · ${pack.packedCount}/${pack.total} packed</p>
+          <p class="card-sub">${plural(trip.days.length, 'day', 'days')} · ${plural(
+            outfitCount,
+            'outfit',
+            'outfits'
+          )}${extrasBit} · ${pack.packedCount}/${pack.total} packed</p>
           <div class="progress-bar" aria-hidden="true"><span style="width:${pct}%"></span></div>
         </div>
       `;
@@ -211,6 +496,7 @@
     });
 
     $('#new-trip-btn').onclick = () => showNewTripSheet();
+    bindHints();
   }
 
   function showNewTripSheet() {
@@ -224,8 +510,8 @@
         </div>
         <div class="field">
           <label for="trip-days">Number of days</label>
-          <input class="input" id="trip-days" name="days" type="number" min="1" max="30" value="3" required />
-          <p class="hint">You can add more than one outfit per day.</p>
+          <input class="input" id="trip-days" name="days" type="number" min="1" max="30" value="${PackStore.getPrefs().defaultTripDays}" required />
+          <p class="hint">You can add more than one outfit per day, plus extra items.</p>
         </div>
         <button type="submit" class="btn btn-primary btn-block">Create trip</button>
       </form>
@@ -273,6 +559,7 @@
 
     const outfits = PackStore.listOutfits();
     const outfitMap = new Map(outfits.map((o) => [o.id, o]));
+    const tripStaples = PackStore.getTripStaples(trip.id);
 
     main.innerHTML = `
       <div class="segments" role="tablist">
@@ -286,6 +573,7 @@
         </div>
         <div id="days"></div>
       </div>
+      <div class="section" id="trip-staples-section"></div>
       <div class="sticky-cta">
         <button type="button" class="btn btn-primary btn-block" id="go-pack">Start packing</button>
       </div>
@@ -298,12 +586,20 @@
 
     const daysEl = $('#days');
     for (const day of trip.days) {
+      const extraCount = day.items?.length || 0;
+      const metaBits = [
+        plural(day.outfitIds.length, 'outfit', 'outfits'),
+        extraCount ? plural(extraCount, 'extra', 'extras') : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+
       const block = document.createElement('div');
       block.className = 'day-block';
       block.innerHTML = `
         <div class="day-header">
           <h3>${escapeHtml(day.label)}</h3>
-          <span class="section-meta">${plural(day.outfitIds.length, 'outfit', 'outfits')}</span>
+          <span class="section-meta">${metaBits}</span>
         </div>
         <div class="day-outfits" data-day="${day.id}"></div>
       `;
@@ -348,19 +644,197 @@
         container.appendChild(row);
       }
 
-      const addBtn = document.createElement('button');
-      addBtn.type = 'button';
-      addBtn.className = 'add-outfit-btn';
-      addBtn.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-        Add outfit
+      if (day.items?.length) {
+        const extrasWrap = document.createElement('div');
+        extrasWrap.className = 'day-extras';
+        day.items.forEach((item) => {
+          const extra = document.createElement('div');
+          extra.className = 'day-item-row';
+          extra.innerHTML = `
+            <span class="name">${escapeHtml(item.name)}</span>
+            <span class="tag">This day</span>
+            <button type="button" class="remove" aria-label="Remove ${escapeHtml(item.name)}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          `;
+          extra.querySelector('.remove').onclick = () => {
+            PackStore.removeItemFromDay(trip.id, day.id, item.id);
+            toast('Item removed from day');
+            render();
+          };
+          extrasWrap.appendChild(extra);
+        });
+        container.appendChild(extrasWrap);
+      }
+
+      const addRow = document.createElement('div');
+      addRow.className = 'day-add-row';
+      addRow.innerHTML = `
+        <button type="button" class="add-outfit-btn" data-add="outfit">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          Outfit
+        </button>
+        <button type="button" class="add-outfit-btn" data-add="item">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          Item
+        </button>
       `;
-      addBtn.onclick = () => showAddOutfitToDay(trip, day);
-      container.appendChild(addBtn);
+      addRow.querySelector('[data-add="outfit"]').onclick = () => showAddOutfitToDay(trip, day);
+      addRow.querySelector('[data-add="item"]').onclick = () => showAddItemToDay(trip, day);
+      container.appendChild(addRow);
       daysEl.appendChild(block);
     }
 
-    await fillPhotoSlots(daysEl);
+    renderTripStaplesSection($('#trip-staples-section'), trip, tripStaples);
+    bindHints();
+    if (PackStore.getPrefs().showPhotos) await fillPhotoSlots(daysEl);
+  }
+
+  function renderTripStaplesSection(el, trip, tripStaples) {
+    const hiddenCount = tripStaples.hidden.length;
+    const groups = new Map();
+    tripStaples.active.forEach((s) => {
+      const cat = s.category || 'Other';
+      if (!groups.has(cat)) groups.set(cat, []);
+      groups.get(cat).push(s);
+    });
+
+    el.innerHTML = `
+      <div class="section-head">
+        <h2 class="section-title">Staples this trip</h2>
+        <span class="section-meta">${tripStaples.active.length} coming along</span>
+      </div>
+      ${hintHtml('trip-staples', 'Remove gloves for a summer trip — they stay in your usual staples for the next one.')}
+      <div id="trip-staple-groups"></div>
+      <div class="day-add-row" style="margin-top:10px">
+        <button type="button" class="add-outfit-btn" id="add-trip-staple">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          Add staple
+        </button>
+        ${
+          hiddenCount
+            ? `<button type="button" class="add-outfit-btn" id="restore-trip-staples">Restore ${plural(
+                hiddenCount,
+                'hidden item',
+                'hidden items'
+              )}</button>`
+            : `<button type="button" class="add-outfit-btn" id="manage-trip-staples">Manage list</button>`
+        }
+      </div>
+    `;
+
+    const groupsEl = $('#trip-staple-groups', el);
+    if (!tripStaples.active.length) {
+      groupsEl.innerHTML = `<p class="cat-empty">No staples on this trip. Add one, or restore your usual list.</p>`;
+    } else {
+      groups.forEach((items, cat) => {
+        const block = document.createElement('div');
+        block.className = 'trip-staple-group';
+        block.innerHTML = `<p class="cat-group-label">${escapeHtml(cat)}</p>`;
+        items.forEach((s) => {
+          const row = document.createElement('div');
+          row.className = 'staple-row compact';
+          row.innerHTML = `
+            <span class="name">${escapeHtml(s.name)}</span>
+            ${s.source === 'trip' ? '<span class="tag">This trip</span>' : ''}
+            <button type="button" class="del" aria-label="Remove ${escapeHtml(s.name)} from this trip">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          `;
+          row.querySelector('.del').onclick = () => {
+            PackStore.removeTripStaple(trip.id, s.id, s.source);
+            toast('Removed from this trip');
+            render();
+          };
+          block.appendChild(row);
+        });
+        groupsEl.appendChild(block);
+      });
+    }
+
+    $('#add-trip-staple', el).onclick = () => showAddTripStaple(trip);
+    const restoreBtn = $('#restore-trip-staples', el);
+    if (restoreBtn) restoreBtn.onclick = () => showTripStaplesSheet(trip);
+    const manageBtn = $('#manage-trip-staples', el);
+    if (manageBtn) manageBtn.onclick = () => showTripStaplesSheet(trip);
+  }
+
+  function showAddTripStaple(trip) {
+    openSheet(
+      'Add staple to this trip',
+      `
+      <p class="hint" style="margin:0 0 12px">This stays on this trip only. Your usual staples list is unchanged.</p>
+      <form id="trip-staple-form">
+        <div class="field">
+          <label for="trip-staple-name">Item</label>
+          <input class="input" id="trip-staple-name" placeholder="Travel umbrella" required autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="trip-staple-cat">Category</label>
+          <select class="input" id="trip-staple-cat">
+            ${optionHtml(PackStore.listStapleCategories(), 'Other')}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Add to this trip</button>
+      </form>
+    `
+    );
+    $('#trip-staple-name').focus();
+    $('#trip-staple-form').onsubmit = (e) => {
+      e.preventDefault();
+      const name = $('#trip-staple-name').value.trim();
+      const category = $('#trip-staple-cat').value;
+      if (!name) return;
+      const result = PackStore.addTripStaple(trip.id, { name, category });
+      closeSheet();
+      if (result.action === 'restored') toast('Restored from your usual list');
+      else if (result.action === 'exists') toast('Already on this trip');
+      else toast('Added for this trip');
+      render();
+    };
+  }
+
+  function showTripStaplesSheet(trip) {
+    const data = PackStore.getTripStaples(trip.id);
+    openSheet(
+      'Staples this trip',
+      `
+      <p class="hint" style="margin:0 0 14px">Hidden items stay in your usual staples. They just skip this trip.</p>
+      <div id="hidden-staples"></div>
+    `
+    );
+    const wrap = $('#hidden-staples');
+    if (!data.hidden.length) {
+      wrap.innerHTML = `<p class="cat-empty">Nothing hidden. Remove items from the trip plan to skip them here.</p>`;
+      return;
+    }
+    data.hidden.forEach((s) => {
+      const row = document.createElement('div');
+      row.className = 'staple-row';
+      row.innerHTML = `
+        <span class="name">${escapeHtml(s.name)}</span>
+        <span class="tag">${escapeHtml(s.category || 'Other')}</span>
+        <button type="button" class="btn btn-secondary" style="min-height:40px;padding:8px 12px;font-size:13px">Restore</button>
+      `;
+      row.querySelector('button').onclick = () => {
+        PackStore.restoreStapleToTrip(trip.id, s.id);
+        toast(`Restored ${s.name}`);
+        closeSheet();
+        render();
+      };
+      wrap.appendChild(row);
+    });
+  }
+
+  function showAddItemToDay(trip, day) {
+    showCategoryPicker({
+      title: `Add to ${day.label}`,
+      onPick: (name) => {
+        PackStore.addItemToDay(trip.id, day.id, { name });
+        toast(`Added ${name}`);
+      },
+      onClose: () => render(),
+    });
   }
 
   function renderPackView(trip) {
@@ -372,6 +846,7 @@
         <button type="button" class="segment" data-view="plan">Plan days</button>
         <button type="button" class="segment active" data-view="pack">Pack</button>
       </div>
+      ${hintHtml('pack', 'Each piece has its own checkbox. Repeats show again on later days — check once, and it stays checked everywhere.')}
       <div class="pack-summary">
         <div>
           <p class="label">Packed</p>
@@ -383,8 +858,8 @@
         pack.total === 0
           ? `<div class="empty">
               <p class="empty-kicker">Nothing to pack yet</p>
-              <h2>Add outfits to your days</h2>
-              <p>Pick outfits from your library (or create new ones). Staples appear here automatically.</p>
+              <h2>Add outfits or items to your days</h2>
+              <p>Pick outfits, add extras for a single day, or restore staples. Each piece gets its own checkbox.</p>
               <button type="button" class="btn btn-primary" id="back-to-plan">Plan days</button>
             </div>`
           : `<div class="check-list" id="pack-list"></div>
@@ -401,10 +876,12 @@
     const backPlan = $('#back-to-plan');
     if (backPlan) backPlan.onclick = () => navigate(`trip/${trip.id}?view=plan`);
 
+    bindHints();
+
     const unpack = $('#unpack-all');
     if (unpack) {
       unpack.onclick = () => {
-        if (!confirm('Clear all packed checkmarks for this trip?')) return;
+        if (!askConfirm('Clear all packed checkmarks for this trip?')) return;
         PackStore.updateTrip(trip.id, { packed: {} });
         toast('Checks cleared');
         render();
@@ -414,34 +891,106 @@
     const list = $('#pack-list');
     if (!list) return;
 
-    pack.groups.forEach((group) => {
+    const prefs = PackStore.getPrefs();
+
+    pack.dayGroups.forEach((day) => {
+      const hasOutfits = day.outfits.length;
+      const hasExtras = day.extras.length;
+      const hasPieces = day.outfits.some((o) => o.items.length) || hasExtras;
+      if (!hasOutfits && !hasExtras && prefs.hideEmptyDays) return;
+      if (!hasOutfits && !hasExtras && !prefs.hideEmptyDays) {
+        const label = document.createElement('div');
+        label.className = 'check-group-label';
+        label.textContent = day.label;
+        list.appendChild(label);
+        const empty = document.createElement('div');
+        empty.className = 'pack-empty-note';
+        empty.textContent = 'Nothing planned for this day.';
+        list.appendChild(empty);
+        return;
+      }
+
+      const label = document.createElement('div');
+      label.className = 'check-group-label';
+      const dayItems = [
+        ...day.outfits.flatMap((o) => o.items),
+        ...day.extras,
+      ];
+      const uniqueKeys = [...new Set(dayItems.map((i) => i.key))];
+      const done = uniqueKeys.filter((k) => dayItems.find((i) => i.key === k)?.packed).length;
+      label.innerHTML = `${escapeHtml(day.label)} <span class="check-count" style="float:right">${
+        hasPieces ? `${done}/${uniqueKeys.length}` : 'No pieces'
+      }</span>`;
+      list.appendChild(label);
+
+      day.outfits.forEach((outfit) => {
+        if (prefs.showOutfitHeadings) {
+          const sub = document.createElement('div');
+          sub.className = 'pack-outfit-label';
+          sub.textContent = outfit.name;
+          list.appendChild(sub);
+        }
+
+        if (!outfit.items.length) {
+          const empty = document.createElement('div');
+          empty.className = 'pack-empty-note';
+          empty.textContent = outfit.missing
+            ? 'This outfit was removed from your library.'
+            : 'No pieces listed — add items to the outfit, or extras to this day.';
+          list.appendChild(empty);
+          return;
+        }
+
+        outfit.items.forEach((item) => appendCheckItem(list, trip, item, prefs));
+      });
+
+      if (hasExtras) {
+        if (prefs.showOutfitHeadings) {
+          const sub = document.createElement('div');
+          sub.className = 'pack-outfit-label';
+          sub.textContent = 'Added to this day';
+          list.appendChild(sub);
+        }
+        day.extras.forEach((item) => appendCheckItem(list, trip, item, prefs));
+      }
+    });
+
+    pack.stapleGroups.forEach((group) => {
+      const items = prefs.hidePackedItems ? group.items.filter((i) => !i.packed) : group.items;
+      if (!items.length) return;
       const label = document.createElement('div');
       label.className = 'check-group-label';
       const done = group.items.filter((i) => i.packed).length;
       label.innerHTML = `${escapeHtml(group.label)} <span class="check-count" style="float:right">${done}/${group.items.length}</span>`;
       list.appendChild(label);
-
-      group.items.forEach((item) => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = `check-item${item.packed ? ' done' : ''}`;
-        btn.setAttribute('aria-pressed', item.packed ? 'true' : 'false');
-        btn.innerHTML = `
-          <span class="checkbox" aria-hidden="true">
-            ${item.packed ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>' : ''}
-          </span>
-          <span class="check-label">
-            ${escapeHtml(item.name)}
-            ${item.note ? `<span style="display:block;font-size:12px;font-weight:500;color:var(--ink-faint);margin-top:2px;text-decoration:none">${escapeHtml(item.note)}</span>` : ''}
-          </span>
-        `;
-        btn.onclick = () => {
-          PackStore.setPacked(trip.id, item.key, !item.packed);
-          render();
-        };
-        list.appendChild(btn);
-      });
+      items.forEach((item) => appendCheckItem(list, trip, item, prefs));
     });
+  }
+
+  function appendCheckItem(list, trip, item, prefs = PackStore.getPrefs()) {
+    if (prefs.hidePackedItems && item.packed) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `check-item${item.packed ? ' done' : ''}`;
+    btn.setAttribute('aria-pressed', item.packed ? 'true' : 'false');
+    btn.innerHTML = `
+      <span class="checkbox" aria-hidden="true">
+        ${item.packed ? CHECK_SVG : ''}
+      </span>
+      <span class="check-label">
+        ${escapeHtml(item.name)}
+        ${
+          item.note
+            ? `<span class="check-note">${escapeHtml(item.note)}</span>`
+            : ''
+        }
+      </span>
+    `;
+    btn.onclick = () => {
+      PackStore.setPacked(trip.id, item.key, !item.packed);
+      render();
+    };
+    list.appendChild(btn);
   }
 
   function showTripOptions(trip) {
@@ -456,7 +1005,7 @@
         <div class="field">
           <label for="edit-trip-days">Days</label>
           <input class="input" id="edit-trip-days" type="number" min="1" max="30" value="${trip.days.length}" required />
-          <p class="hint">Reducing days removes outfits from the last days.</p>
+          <p class="hint">Reducing days removes outfits and extras from the last days.</p>
         </div>
         <button type="submit" class="btn btn-primary btn-block">Save</button>
       </form>
@@ -478,7 +1027,7 @@
     };
 
     $('#delete-trip').onclick = () => {
-      if (!confirm(`Delete “${trip.name}”? This cannot be undone.`)) return;
+      if (!askConfirm(`Delete “${trip.name}”? This cannot be undone.`)) return;
       PackStore.deleteTrip(trip.id);
       closeSheet();
       toast('Trip deleted');
@@ -540,7 +1089,7 @@
       }
       picker.appendChild(opt);
     });
-    fillPhotoSlots(picker);
+    if (PackStore.getPrefs().showPhotos) fillPhotoSlots(picker);
   }
 
   // ——— Outfits ———
@@ -558,20 +1107,24 @@
 
     if (!outfits.length) {
       main.innerHTML = `
+        ${closetSegments('outfits')}
         <div class="empty">
           <p class="empty-kicker">Build your wardrobe</p>
           <h2>Save outfits you wear again</h2>
-          <p>Include clothes and accessories together. Photos are optional — add them later from your phone.</p>
+          <p>Pick pieces from categories or your accessory bank. Photos are optional.</p>
           <button type="button" class="btn btn-primary" id="empty-new-outfit">Add first outfit</button>
         </div>
       `;
+      bindClosetSegments();
       $('#empty-new-outfit').onclick = () =>
         showOutfitEditor({ onSaved: () => { toast('Outfit saved'); render(); } });
       return;
     }
 
     main.innerHTML = `
+      ${closetSegments('outfits')}
       <div class="section">
+        ${hintHtml('outfits', 'Save looks once, then drop them onto any day. Add extras on a day if you don’t want them on the base outfit.')}
         <div class="section-head">
           <h2 class="section-title">Favorites</h2>
           <span class="section-meta">${plural(outfits.length, 'outfit', 'outfits')}</span>
@@ -582,6 +1135,8 @@
         <button type="button" class="btn btn-primary btn-block" id="new-outfit-btn">New outfit</button>
       </div>
     `;
+
+    bindClosetSegments();
 
     const grid = $('#outfit-grid');
     outfits.forEach((outfit) => {
@@ -606,7 +1161,118 @@
     $('#new-outfit-btn').onclick = () =>
       showOutfitEditor({ onSaved: () => { toast('Outfit saved'); render(); } });
 
-    await fillPhotoSlots(grid);
+    bindHints();
+    if (PackStore.getPrefs().showPhotos) await fillPhotoSlots(grid);
+  }
+
+  function renderAccessories() {
+    const accessories = PackStore.listAccessories();
+    setChrome({
+      title: 'Accessories',
+      eyebrow: 'Library',
+      showBack: false,
+      action: {
+        label: 'Add accessory',
+        onClick: () => showAddAccessory(),
+      },
+    });
+
+    const groups = new Map();
+    accessories.forEach((a) => {
+      const cat = a.category || 'Other';
+      if (!groups.has(cat)) groups.set(cat, []);
+      groups.get(cat).push(a);
+    });
+
+    main.innerHTML = `
+      ${closetSegments('accessories')}
+      <div class="section">
+        ${hintHtml('accessories', 'Tap these when building outfits or adding extras to a day — no retyping.')}
+        <div id="accessories-list"></div>
+      </div>
+      <div class="sticky-cta">
+        <button type="button" class="btn btn-primary btn-block" id="add-accessory-btn">Add accessory</button>
+      </div>
+    `;
+
+    bindClosetSegments();
+    bindHints();
+
+    const list = $('#accessories-list');
+    if (!accessories.length) {
+      list.innerHTML = `
+        <div class="empty" style="padding-top:8px">
+          <h2 style="font-size:22px">No accessories yet</h2>
+          <p>Save earrings, bags, belts, and the rest. They show up as taps in the category picker.</p>
+        </div>
+      `;
+    } else {
+      const order = PackStore.ACCESSORY_CAT_ORDER.concat(
+        [...groups.keys()].filter((c) => !PackStore.ACCESSORY_CAT_ORDER.includes(c))
+      );
+      order.forEach((cat) => {
+        const items = groups.get(cat);
+        if (!items?.length) return;
+        const section = document.createElement('div');
+        section.className = 'section';
+        section.style.marginBottom = '20px';
+        section.innerHTML = `<div class="section-head"><h2 class="section-title">${escapeHtml(
+          cat
+        )}</h2></div><div class="stack"></div>`;
+        const stack = $('.stack', section);
+        items.forEach((a) => {
+          const row = document.createElement('div');
+          row.className = 'staple-row';
+          row.innerHTML = `
+            <span class="name">${escapeHtml(a.name)}</span>
+            <button type="button" class="del" aria-label="Delete ${escapeHtml(a.name)}">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+            </button>
+          `;
+          row.querySelector('.del').onclick = () => {
+            PackStore.deleteAccessory(a.id);
+            toast('Accessory removed');
+            render();
+          };
+          stack.appendChild(row);
+        });
+        list.appendChild(section);
+      });
+    }
+
+    $('#add-accessory-btn').onclick = () => showAddAccessory();
+  }
+
+  function showAddAccessory() {
+    openSheet(
+      'Add accessory',
+      `
+      <form id="accessory-form">
+        <div class="field">
+          <label for="accessory-name">Item</label>
+          <input class="input" id="accessory-name" placeholder="Gold hoop earrings" required autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="accessory-cat">Category</label>
+          <select class="input" id="accessory-cat">
+            ${optionHtml(PackStore.listAccessoryCategories(), 'Jewelry')}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Save to bank</button>
+      </form>
+    `
+    );
+    $('#accessory-name').focus();
+    $('#accessory-form').onsubmit = (e) => {
+      e.preventDefault();
+      const name = $('#accessory-name').value.trim();
+      const category = $('#accessory-cat').value;
+      if (!name) return;
+      PackStore.addAccessory({ name, category });
+      closeSheet();
+      toast('Accessory saved');
+      render();
+    };
   }
 
   async function renderOutfitDetail() {
@@ -708,7 +1374,7 @@
       });
 
     $('#delete-outfit-btn').onclick = async () => {
-      if (!confirm(`Delete “${outfit.name}”?`)) return;
+      if (!askConfirm(`Delete “${outfit.name}”?`)) return;
       if (outfit.photoId) {
         PackDB.revokeObjectUrl(outfit.photoId);
         await PackDB.deletePhoto(outfit.photoId);
@@ -721,7 +1387,7 @@
 
   /**
    * Outfit editor sheet.
-   * Accessories are listed as items on the outfit (not a separate list).
+   * Pieces can be typed or picked from the category / accessory bank.
    */
   function showOutfitEditor({ outfit = null, onSaved } = {}) {
     const isEdit = !!outfit;
@@ -729,49 +1395,9 @@
     let pendingPhotoFile = null;
     let photoId = outfit?.photoId || null;
     let removePhoto = false;
+    let draftName = outfit?.name || '';
 
-    openSheet(
-      isEdit ? 'Edit outfit' : 'New outfit',
-      `
-      <form id="outfit-form">
-        <div class="field">
-          <label for="outfit-name">Name</label>
-          <input class="input" id="outfit-name" value="${escapeHtml(outfit?.name || '')}" placeholder="Dinner — black dress + gold hoops" required autocomplete="off" />
-        </div>
-
-        <div class="field">
-          <label>Photo <span style="font-weight:400;color:var(--ink-faint)">(optional)</span></label>
-          <div class="photo-area" id="photo-area" tabindex="0" role="button" aria-label="Add photo">
-            <div class="photo-placeholder-icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-            </div>
-            <p>Add a photo later if you want</p>
-            <span class="hint">Tap to choose from your library</span>
-            <input type="file" id="outfit-photo-input" accept="image/*" />
-          </div>
-        </div>
-
-        <div class="field">
-          <label for="item-input">Pieces & accessories</label>
-          <div class="input-row">
-            <input class="input" id="item-input" placeholder="e.g. Gold hoop earrings" autocomplete="off" />
-            <button type="button" class="btn btn-secondary" id="add-item-btn" style="min-width:72px">Add</button>
-          </div>
-          <p class="hint">Clothes, shoes, bags, jewelry — everything for this look.</p>
-          <div class="items-editor" id="items-editor"></div>
-        </div>
-
-        <button type="submit" class="btn btn-primary btn-block">${isEdit ? 'Save changes' : 'Save outfit'}</button>
-      </form>
-    `
-    );
-
-    const photoArea = $('#photo-area');
-    const photoInput = $('#outfit-photo-input');
-    const itemsEditor = $('#items-editor');
-    const itemInput = $('#item-input');
-
-    function renderItems() {
+    function renderItems(itemsEditor) {
       itemsEditor.innerHTML = '';
       items.forEach((item, idx) => {
         const chip = document.createElement('div');
@@ -779,153 +1405,206 @@
         chip.innerHTML = `<span>${escapeHtml(item)}</span><button type="button" aria-label="Remove ${escapeHtml(item)}">×</button>`;
         chip.querySelector('button').onclick = () => {
           items = items.filter((_, i) => i !== idx);
-          renderItems();
+          renderItems(itemsEditor);
         };
         itemsEditor.appendChild(chip);
       });
     }
 
-    async function showExistingPhoto() {
-      if (!photoId || removePhoto) return;
-      const url = await PackDB.getObjectUrl(photoId);
-      if (!url) return;
-      photoArea.classList.add('has-photo');
-      photoArea.innerHTML = `
-        <img src="${url}" alt="" />
-        <div class="photo-actions">
-          <button type="button" class="btn btn-secondary" id="change-photo" style="min-height:40px;padding:8px 12px;font-size:13px">Change</button>
-          <button type="button" class="btn btn-danger" id="clear-photo" style="min-height:40px;padding:8px 12px;font-size:13px">Remove</button>
-        </div>
-      `;
-      $('#change-photo').onclick = () => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = 'image/*';
-        input.onchange = () => {
-          if (input.files?.[0]) setPendingPhoto(input.files[0]);
-        };
-        input.click();
-      };
-      $('#clear-photo').onclick = () => {
-        removePhoto = true;
-        pendingPhotoFile = null;
+    const photoPlaceholder = `
+      <div class="photo-placeholder-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+      </div>
+      <p>Add a photo later if you want</p>
+      <span class="hint">Tap to choose from your library</span>
+      <input type="file" id="outfit-photo-input" accept="image/*" />
+    `;
+
+    function bindPhotoArea(photoArea) {
+      function resetPlaceholder() {
         photoArea.classList.remove('has-photo');
-        photoArea.innerHTML = `
-          <div class="photo-placeholder-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-          </div>
-          <p>Add a photo later if you want</p>
-          <span class="hint">Tap to choose from your library</span>
-          <input type="file" id="outfit-photo-input" accept="image/*" />
-        `;
-        $('#outfit-photo-input').onchange = (e) => {
+        photoArea.innerHTML = photoPlaceholder;
+        $('#outfit-photo-input', photoArea).onchange = (e) => {
           if (e.target.files?.[0]) setPendingPhoto(e.target.files[0]);
         };
-      };
-    }
+      }
 
-    function setPendingPhoto(file) {
-      pendingPhotoFile = file;
-      removePhoto = false;
-      const url = URL.createObjectURL(file);
-      photoArea.classList.add('has-photo');
-      photoArea.innerHTML = `
-        <img src="${url}" alt="" />
-        <div class="photo-actions">
-          <button type="button" class="btn btn-secondary" id="change-photo" style="min-height:40px;padding:8px 12px;font-size:13px">Change</button>
-          <button type="button" class="btn btn-danger" id="clear-photo" style="min-height:40px;padding:8px 12px;font-size:13px">Remove</button>
-        </div>
-      `;
-      $('#change-photo').onclick = () => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = 'image/*';
-        input.onchange = () => {
-          if (input.files?.[0]) setPendingPhoto(input.files[0]);
-        };
-        input.click();
-      };
-      $('#clear-photo').onclick = () => {
-        pendingPhotoFile = null;
-        removePhoto = true;
-        photoArea.classList.remove('has-photo');
+      function bindPhotoActions() {
+        const change = $('#change-photo', photoArea);
+        const clear = $('#clear-photo', photoArea);
+        if (change) {
+          change.onclick = () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.onchange = () => {
+              if (input.files?.[0]) setPendingPhoto(input.files[0]);
+            };
+            input.click();
+          };
+        }
+        if (clear) {
+          clear.onclick = () => {
+            removePhoto = true;
+            pendingPhotoFile = null;
+            resetPlaceholder();
+          };
+        }
+      }
+
+      function setPhotoMarkup(src) {
+        photoArea.classList.add('has-photo');
         photoArea.innerHTML = `
-          <div class="photo-placeholder-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          <img src="${src}" alt="" />
+          <div class="photo-actions">
+            <button type="button" class="btn btn-secondary" id="change-photo" style="min-height:40px;padding:8px 12px;font-size:13px">Change</button>
+            <button type="button" class="btn btn-danger" id="clear-photo" style="min-height:40px;padding:8px 12px;font-size:13px">Remove</button>
           </div>
-          <p>Add a photo later if you want</p>
-          <span class="hint">Tap to choose from your library</span>
-          <input type="file" id="outfit-photo-input" accept="image/*" />
         `;
-        $('#outfit-photo-input').onchange = (e) => {
-          if (e.target.files?.[0]) setPendingPhoto(e.target.files[0]);
+        bindPhotoActions();
+      }
+
+      function setPendingPhoto(file) {
+        pendingPhotoFile = file;
+        removePhoto = false;
+        setPhotoMarkup(URL.createObjectURL(file));
+      }
+
+      async function showExistingPhoto() {
+        if (!photoId || removePhoto) return;
+        const url = await PackDB.getObjectUrl(photoId);
+        if (!url) return;
+        setPhotoMarkup(url);
+      }
+
+      const photoInput = $('#outfit-photo-input', photoArea);
+      if (photoInput) {
+        photoInput.onchange = () => {
+          if (photoInput.files?.[0]) setPendingPhoto(photoInput.files[0]);
         };
+      }
+
+      if (pendingPhotoFile) setPendingPhoto(pendingPhotoFile);
+      else if (photoId && !removePhoto) showExistingPhoto();
+
+      return { setPendingPhoto };
+    }
+
+    function renderForm() {
+      sheetTitle.textContent = isEdit ? 'Edit outfit' : 'New outfit';
+      sheetBody.innerHTML = `
+        <form id="outfit-form">
+          <div class="field">
+            <label for="outfit-name">Name</label>
+            <input class="input" id="outfit-name" value="${escapeHtml(draftName)}" placeholder="Dinner — black dress + gold hoops" required autocomplete="off" />
+          </div>
+
+          <div class="field">
+            <label>Photo <span style="font-weight:400;color:var(--ink-faint)">(optional)</span></label>
+            <div class="photo-area" id="photo-area" tabindex="0" role="button" aria-label="Add photo">
+              ${photoPlaceholder}
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="item-input">Pieces & accessories</label>
+            <div class="input-row">
+              <input class="input" id="item-input" placeholder="e.g. Gold hoop earrings" autocomplete="off" />
+              <button type="button" class="btn btn-secondary" id="add-item-btn" style="min-width:72px">Add</button>
+            </div>
+            <button type="button" class="browse-cats-btn" id="browse-cats">Browse categories & accessories</button>
+            <p class="hint">Base pieces live on the outfit. Add extras later on a specific day if you don’t want them every time.</p>
+            <div class="items-editor" id="items-editor"></div>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block">${isEdit ? 'Save changes' : 'Save outfit'}</button>
+        </form>
+      `;
+
+      const photoArea = $('#photo-area');
+      const itemsEditor = $('#items-editor');
+      const itemInput = $('#item-input');
+      bindPhotoArea(photoArea);
+      renderItems(itemsEditor);
+
+      function addItem() {
+        const val = itemInput.value.trim();
+        if (!val) return;
+        if (!items.some((i) => i.toLowerCase() === val.toLowerCase())) items.push(val);
+        itemInput.value = '';
+        renderItems(itemsEditor);
+        itemInput.focus();
+      }
+
+      $('#add-item-btn').onclick = addItem;
+      itemInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          addItem();
+        }
+      });
+
+      $('#browse-cats').onclick = () => {
+        draftName = $('#outfit-name').value;
+        showPicker();
       };
-    }
 
-    photoInput.onchange = () => {
-      if (photoInput.files?.[0]) setPendingPhoto(photoInput.files[0]);
-    };
+      $('#outfit-name').focus();
 
-    function addItem() {
-      const val = itemInput.value.trim();
-      if (!val) return;
-      items.push(val);
-      itemInput.value = '';
-      renderItems();
-      itemInput.focus();
-    }
-
-    $('#add-item-btn').onclick = addItem;
-    itemInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
+      $('#outfit-form').onsubmit = async (e) => {
         e.preventDefault();
-        addItem();
-      }
-    });
+        const name = $('#outfit-name').value.trim();
+        if (!name) return;
 
-    renderItems();
-    if (photoId) showExistingPhoto();
-    $('#outfit-name').focus();
+        let nextPhotoId = photoId;
 
-    $('#outfit-form').onsubmit = async (e) => {
-      e.preventDefault();
-      const name = $('#outfit-name').value.trim();
-      if (!name) return;
+        try {
+          if (removePhoto && photoId) {
+            PackDB.revokeObjectUrl(photoId);
+            await PackDB.deletePhoto(photoId);
+            nextPhotoId = null;
+          }
 
-      let nextPhotoId = photoId;
+          if (pendingPhotoFile) {
+            const blob = await PackDB.compressImage(pendingPhotoFile);
+            nextPhotoId = nextPhotoId || PackStore.uid();
+            await PackDB.putPhoto(nextPhotoId, blob);
+            PackDB.revokeObjectUrl(nextPhotoId);
+          }
 
-      try {
-        if (removePhoto && photoId) {
-          PackDB.revokeObjectUrl(photoId);
-          await PackDB.deletePhoto(photoId);
-          nextPhotoId = null;
+          let saved;
+          if (isEdit) {
+            saved = PackStore.updateOutfit(outfit.id, {
+              name,
+              items,
+              photoId: nextPhotoId,
+            });
+          } else {
+            saved = PackStore.createOutfit({ name, items, photoId: nextPhotoId });
+          }
+
+          closeSheet();
+          if (onSaved) onSaved(saved);
+        } catch {
+          toast('Could not save outfit');
         }
+      };
+    }
 
-        if (pendingPhotoFile) {
-          const blob = await PackDB.compressImage(pendingPhotoFile);
-          nextPhotoId = nextPhotoId || PackStore.uid();
-          await PackDB.putPhoto(nextPhotoId, blob);
-          PackDB.revokeObjectUrl(nextPhotoId);
-        }
+    function showPicker() {
+      sheetTitle.textContent = 'Add a piece';
+      mountCategoryPicker(sheetBody, {
+        showBack: true,
+        onBack: renderForm,
+        onPick: (name) => {
+          if (!items.some((i) => i.toLowerCase() === name.toLowerCase())) items.push(name);
+          toast(`Added ${name}`);
+        },
+      });
+    }
 
-        let saved;
-        if (isEdit) {
-          saved = PackStore.updateOutfit(outfit.id, {
-            name,
-            items,
-            photoId: nextPhotoId,
-          });
-        } else {
-          saved = PackStore.createOutfit({ name, items, photoId: nextPhotoId });
-        }
-
-        closeSheet();
-        if (onSaved) onSaved(saved);
-      } catch {
-        toast('Could not save outfit');
-      }
-    };
+    openSheet(isEdit ? 'Edit outfit' : 'New outfit', '');
+    renderForm();
   }
 
   // ——— Staples ———
@@ -941,7 +1620,6 @@
       },
     });
 
-    // Group by category
     const groups = new Map();
     staples.forEach((s) => {
       const cat = s.category || 'Other';
@@ -951,13 +1629,15 @@
 
     main.innerHTML = `
       <div class="section">
-        <p class="card-sub" style="margin:0 0 16px">These items are added to every packing list automatically. Edit once — pack forever.</p>
+        ${hintHtml('staples', 'These start on every new trip. Skip one for a single trip from that trip’s plan — deleting here changes the default list.')}
         <div id="staples-list"></div>
       </div>
       <div class="sticky-cta">
         <button type="button" class="btn btn-primary btn-block" id="add-staple-btn">Add staple</button>
       </div>
     `;
+
+    bindHints();
 
     const list = $('#staples-list');
     if (!staples.length) {
@@ -1009,11 +1689,7 @@
         <div class="field">
           <label for="staple-cat">Category</label>
           <select class="input" id="staple-cat">
-            <option>Toiletries</option>
-            <option>Basics</option>
-            <option>Tech</option>
-            <option>Documents</option>
-            <option>Other</option>
+            ${optionHtml(PackStore.listStapleCategories(), 'Other')}
           </select>
         </div>
         <button type="submit" class="btn btn-primary btn-block">Add to staples</button>
@@ -1033,6 +1709,378 @@
     };
   }
 
+  // ——— Settings ———
+  function renderSettings() {
+    const prefs = PackStore.getPrefs();
+    setChrome({
+      title: 'Settings',
+      eyebrow: 'Packlist',
+      showBack: false,
+    });
+
+    const hiddenHintCount = Object.values(prefs.hiddenHints || {}).filter(Boolean).length;
+
+    main.innerHTML = `
+      <div class="settings-search-wrap">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
+        <input class="input settings-search" id="settings-search" type="search" placeholder="Search settings" autocomplete="off" />
+      </div>
+      <div id="settings-body"></div>
+    `;
+
+    const body = $('#settings-body');
+
+    function groups() {
+      return [
+        {
+          id: 'appearance',
+          title: 'Appearance',
+          keywords: 'theme color dark light midnight harbor ink orchard ember linen font text size compact motion animation',
+          html: () => `
+            <div class="theme-grid">
+              ${THEMES.map(
+                (t) => `
+                <button type="button" class="theme-card${prefs.theme === t.id ? ' selected' : ''}" data-theme="${t.id}">
+                  <div class="theme-swatch" style="background:${t.wash}">
+                    <span class="theme-dot" style="background:${t.accent}"></span>
+                  </div>
+                  <div class="meta"><strong>${escapeHtml(t.name)}</strong><span>${escapeHtml(t.note)}</span></div>
+                </button>`
+              ).join('')}
+            </div>
+            <div class="settings-list">
+            ${settingSelect('textSize', 'Text size', 'Larger type across the app.', [
+              ['default', 'Default'],
+              ['large', 'Large'],
+              ['xlarge', 'Extra large'],
+            ], prefs.textSize)}
+            ${settingToggle('compactLists', 'Compact lists', 'Tighter packing and staple rows.', prefs.compactLists)}
+            ${settingToggle('reduceMotion', 'Reduce motion', 'Cut animations and springy taps.', prefs.reduceMotion)}
+            </div>
+          `,
+        },
+        {
+          id: 'planning',
+          title: 'Planning & packing',
+          keywords: 'trip days gender women men empty packed photos confirm delete start tab default length clothing hide outfit names',
+          html: () => `<div class="settings-list">
+            ${settingStepper('defaultTripDays', 'Default trip length', 'Used when you create a new trip.', prefs.defaultTripDays, 1, 30)}
+            ${settingSelect('clothingGender', 'Clothing categories', 'Default for the category picker.', [
+              ['women', 'Women'],
+              ['men', 'Men'],
+            ], prefs.clothingGender)}
+            ${settingSelect('startingTab', 'Open app to', 'First screen after launch.', [
+              ['trips', 'Trips'],
+              ['outfits', 'Outfits'],
+              ['staples', 'Staples'],
+              ['settings', 'Settings'],
+            ], prefs.startingTab)}
+            ${settingToggle('hideEmptyDays', 'Hide empty days', 'Skip days with no outfits or extras on the packing list.', prefs.hideEmptyDays)}
+            ${settingToggle('showOutfitHeadings', 'Show outfit names', 'Label pieces under each look on the packing list.', prefs.showOutfitHeadings)}
+            ${settingToggle('hidePackedItems', 'Hide packed items', 'Once checked, an item drops off the list.', prefs.hidePackedItems)}
+            ${settingToggle('showPhotos', 'Show outfit photos', 'Thumbnails in lists and pickers.', prefs.showPhotos)}
+            ${settingToggle('confirmDeletes', 'Confirm deletions', 'Ask before deleting trips, outfits, or resetting checks.', prefs.confirmDeletes)}
+          </div>`,
+        },
+        {
+          id: 'library',
+          title: 'Library',
+          keywords: 'staple accessory category restore gloves bank',
+          html: () => `<div class="settings-list">
+            ${settingNav('staple-cats', 'Staple categories', prefs.stapleCategories.join(', '))}
+            ${settingNav('accessory-cats', 'Accessory categories', prefs.accessoryCategories.join(', '))}
+            ${settingAction('restore-staples', 'Restore missing staples', 'Adds default items you deleted, like Gloves.')}
+            ${settingAction('restore-accessories', 'Restore missing accessories', 'Adds default bank items you deleted.')}
+          </div>`,
+        },
+        {
+          id: 'hints',
+          title: 'Hints',
+          keywords: 'hint tip hide tap dismiss reset',
+          html: () => `<div class="settings-list">
+            ${settingAction('reset-hints', 'Show hidden hints again', hiddenHintCount ? `${hiddenHintCount} currently hidden` : 'Nothing is hidden')}
+          </div>`,
+        },
+        {
+          id: 'data',
+          title: 'Data',
+          keywords: 'export import backup reset erase packed clear',
+          html: () => `<div class="settings-list">
+            ${settingAction('export', 'Export backup', 'Download outfits, staples, trips, and settings as JSON.')}
+            ${settingAction('import', 'Import backup', 'Replace current lists with a backup file. Photos stay on this device.')}
+            ${settingAction('clear-packed', 'Clear all packing checks', 'Uncheck every trip without deleting plans.')}
+            ${settingAction('erase', 'Erase all app data', 'Deletes trips, outfits, staples, and settings on this device.')}
+          </div>`,
+        },
+        {
+          id: 'about',
+          title: 'About',
+          keywords: 'version storage privacy local',
+          html: () => `<div class="settings-list">
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <strong>Packlist</strong>
+                <span>Version 2 · Everything stays on this device. Clearing Safari site data erases it.</span>
+              </div>
+            </div>
+          </div>`,
+        },
+      ];
+    }
+
+    function settingToggle(key, title, note, on) {
+      return `
+        <button type="button" class="settings-row" data-toggle="${key}">
+          <div class="settings-row-copy"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(note)}</span></div>
+          <span class="toggle${on ? ' on' : ''}" aria-hidden="true"></span>
+        </button>
+      `;
+    }
+
+    function settingSelect(key, title, note, options, value) {
+      return `
+        <label class="settings-row">
+          <div class="settings-row-copy"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(note)}</span></div>
+          <select class="settings-select" data-select="${key}">
+            ${options.map(([v, label]) => `<option value="${v}"${v === value ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('')}
+          </select>
+        </label>
+      `;
+    }
+
+    function settingStepper(key, title, note, value, min, max) {
+      return `
+        <div class="settings-row">
+          <div class="settings-row-copy"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(note)}</span></div>
+          <div class="settings-stepper">
+            <button type="button" data-step="${key}" data-dir="-1" aria-label="Decrease">−</button>
+            <output>${value}</output>
+            <button type="button" data-step="${key}" data-dir="1" aria-label="Increase">+</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function settingNav(id, title, note) {
+      return `
+        <button type="button" class="settings-row nav" data-nav="${id}">
+          <div class="settings-row-copy"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(note)}</span></div>
+          ${CHEV_SVG}
+        </button>
+      `;
+    }
+
+    function settingAction(id, title, note) {
+      return `
+        <button type="button" class="settings-row action" data-action="${id}">
+          <div class="settings-row-copy"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(note)}</span></div>
+        </button>
+      `;
+    }
+
+    function paint(query = '') {
+      const q = query.trim().toLowerCase();
+      const matched = groups().filter((g) => {
+        if (!q) return true;
+        return `${g.title} ${g.keywords}`.toLowerCase().includes(q);
+      });
+      if (!matched.length) {
+        body.innerHTML = `<div class="empty" style="padding-top:12px"><h2 style="font-size:22px">No matching settings</h2><p>Try “theme”, “hints”, or “export”.</p></div>`;
+        return;
+      }
+      body.innerHTML = matched
+        .map(
+          (g) => `
+        <section class="settings-group" data-group="${g.id}">
+          <h2 class="settings-group-title">${escapeHtml(g.title)}</h2>
+          ${g.html()}
+        </section>`
+        )
+        .join('');
+      bindSettings(body);
+    }
+
+    function bindSettings(root) {
+      $$('[data-theme]', root).forEach((btn) => {
+        btn.onclick = () => {
+          PackStore.setPref('theme', btn.dataset.theme);
+          applyAppearance();
+          renderSettingsPreserveSearch();
+        };
+      });
+      $$('[data-toggle]', root).forEach((btn) => {
+        btn.onclick = () => {
+          const key = btn.dataset.toggle;
+          const next = !PackStore.getPrefs()[key];
+          PackStore.setPref(key, next);
+          applyAppearance();
+          renderSettingsPreserveSearch();
+        };
+      });
+      $$('[data-select]', root).forEach((sel) => {
+        sel.onchange = () => {
+          PackStore.setPref(sel.dataset.select, sel.value);
+          applyAppearance();
+          renderSettingsPreserveSearch();
+        };
+      });
+      $$('[data-step]', root).forEach((btn) => {
+        btn.onclick = () => {
+          const key = btn.dataset.step;
+          const dir = Number(btn.dataset.dir);
+          const cur = Number(PackStore.getPrefs()[key]) || 1;
+          PackStore.setPref(key, Math.max(1, Math.min(30, cur + dir)));
+          renderSettingsPreserveSearch();
+        };
+      });
+      $$('[data-nav]', root).forEach((btn) => {
+        btn.onclick = () => showCategoryManager(btn.dataset.nav);
+      });
+      $$('[data-action]', root).forEach((btn) => {
+        btn.onclick = () => runSettingAction(btn.dataset.action);
+      });
+    }
+
+    function renderSettingsPreserveSearch() {
+      const q = $('#settings-search')?.value || '';
+      renderSettings();
+      const input = $('#settings-search');
+      if (input) {
+        input.value = q;
+        input.dispatchEvent(new Event('input'));
+        input.focus();
+        const len = input.value.length;
+        input.setSelectionRange(len, len);
+      }
+    }
+
+    const search = $('#settings-search');
+    search.oninput = () => paint(search.value);
+    paint();
+  }
+
+  function showCategoryManager(kind) {
+    const isStaples = kind === 'staple-cats';
+    const prefKey = isStaples ? 'stapleCategories' : 'accessoryCategories';
+    const title = isStaples ? 'Staple categories' : 'Accessory categories';
+
+    function paintSheet() {
+      const cats = PackStore.getPrefs()[prefKey];
+      sheetTitle.textContent = title;
+      sheetBody.innerHTML = `
+        <p class="hint" style="margin:0 0 12px">These show up when you add items. Existing items keep their current category if you remove one here.</p>
+        <div class="stack" id="cat-manage-list"></div>
+        <form id="cat-manage-form" style="margin-top:16px">
+          <div class="input-row">
+            <input class="input" id="cat-manage-input" placeholder="New category" autocomplete="off" />
+            <button type="submit" class="btn btn-secondary" style="min-width:72px">Add</button>
+          </div>
+        </form>
+      `;
+      const list = $('#cat-manage-list');
+      cats.forEach((cat) => {
+        const row = document.createElement('div');
+        row.className = 'staple-row';
+        row.innerHTML = `
+          <span class="name">${escapeHtml(cat)}</span>
+          <button type="button" class="del" aria-label="Remove ${escapeHtml(cat)}">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        `;
+        row.querySelector('.del').onclick = () => {
+          if (cats.length <= 1) {
+            toast('Keep at least one category');
+            return;
+          }
+          PackStore.setPref(
+            prefKey,
+            cats.filter((c) => c !== cat)
+          );
+          paintSheet();
+        };
+        list.appendChild(row);
+      });
+      $('#cat-manage-form').onsubmit = (e) => {
+        e.preventDefault();
+        const name = $('#cat-manage-input').value.trim();
+        if (!name) return;
+        if (cats.some((c) => c.toLowerCase() === name.toLowerCase())) {
+          toast('Already in the list');
+          return;
+        }
+        PackStore.setPref(prefKey, [...cats, name]);
+        paintSheet();
+      };
+    }
+
+    openSheet(title, '');
+    paintSheet();
+  }
+
+  function runSettingAction(id) {
+    if (id === 'reset-hints') {
+      PackStore.resetHints();
+      toast('Hints restored');
+      render();
+      return;
+    }
+    if (id === 'restore-staples') {
+      const n = PackStore.restoreMissingDefaults('staples');
+      toast(n ? `Added ${n} staple${n === 1 ? '' : 's'}` : 'Nothing missing');
+      return;
+    }
+    if (id === 'restore-accessories') {
+      const n = PackStore.restoreMissingDefaults('accessories');
+      toast(n ? `Added ${n} accessor${n === 1 ? 'y' : 'ies'}` : 'Nothing missing');
+      return;
+    }
+    if (id === 'export') {
+      const blob = new Blob([PackStore.exportBackup()], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `packlist-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('Backup downloaded');
+      return;
+    }
+    if (id === 'import') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json';
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          PackStore.importBackup(text);
+          applyAppearance();
+          toast('Backup imported');
+          render();
+        } catch {
+          toast('Could not read that file');
+        }
+      };
+      input.click();
+      return;
+    }
+    if (id === 'clear-packed') {
+      if (!askConfirm('Clear packing checks on every trip?')) return;
+      PackStore.clearAllPacked();
+      toast('All checks cleared');
+      return;
+    }
+    if (id === 'erase') {
+      if (!askConfirm('Erase everything on this device? This cannot be undone.')) return;
+      if (!confirm('Really erase outfits, trips, staples, and settings?')) return;
+      PackStore.resetAllData();
+      applyAppearance();
+      toast('App data erased');
+      navigate('trips');
+    }
+  }
+
   // ——— Main render ———
   async function render() {
     route = parseHash();
@@ -1049,8 +2097,14 @@
       case 'outfits':
         await renderOutfits();
         break;
+      case 'accessories':
+        renderAccessories();
+        break;
       case 'staples':
         renderStaples();
+        break;
+      case 'settings':
+        renderSettings();
         break;
       default:
         renderTrips();
@@ -1068,7 +2122,6 @@
     navigate(tab.dataset.route);
   });
 
-  main.addEventListener('scroll', () => {}, { passive: true });
   window.addEventListener(
     'scroll',
     () => {
@@ -1077,13 +2130,18 @@
     { passive: true }
   );
 
-  // Keyboard: Escape closes sheet
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !sheet.classList.contains('hidden')) {
       closeSheet();
     }
   });
 
-  // Boot
+  applyAppearance();
+  if (!location.hash || location.hash === '#' || location.hash === '#/') {
+    const start = PackStore.getPrefs().startingTab;
+    if (start && start !== 'trips') {
+      location.replace(`#/${start}`);
+    }
+  }
   render();
 })();

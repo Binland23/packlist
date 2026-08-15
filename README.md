@@ -1,16 +1,20 @@
 # Packlist
 
-A personal packing app for frequent travelers. Save favorite **outfits** (clothes + accessories together), keep a list of **staples** you bring every time, plan **trips** day by day, and tick items off as you pack.
+A personal packing app for frequent travelers. Save favorite **outfits**, keep a reusable **accessory bank**, skip staples per trip, plan **days** with outfits and extras, and tick each piece off as you pack.
 
 Built as an installable **Progressive Web App** for iPhone (and any modern browser). Data stays on your device — no account, no server.
 
 ## Features
 
-- **Outfit library** — name looks, list pieces & accessories, optional photo (add later from your camera roll)
-- **Staples** — toiletries, basics, tech, documents — auto-included on every packing list
-- **Trips** — multi-day plans with **multiple outfits per day**
-- **Packing checklist** — large tap targets, progress %, reset when needed
+- **Outfit library** — name looks, list pieces from clothing categories or free text, optional photo
+- **Accessory bank** — save earrings, bags, belts once and tap them onto outfits or days
+- **Categories** — pick Tops, Layers, Bottoms, Dresses / Suits, Shoes instead of typing every piece
+- **Staples** — toiletries, basics, tech, documents start on every trip; remove or add extras **for that trip only**
+- **Trips** — multi-day plans with multiple outfits **and extra items** per day
+- **Packing checklist** — outfits expand to individual pieces; repeats show on later days but check off once everywhere
 - **Offline / home screen** — works as a standalone app once installed
+- **Settings** — themes, text size, packing behavior, categories, export/import, searchable
+- **Hints** — tap the gray tips at the top of a page to hide them
 
 ## Quick start (local)
 
@@ -61,7 +65,8 @@ After each deploy that changes app files, bump `CACHE_VERSION` in `sw.js` so ins
 index.html          App shell
 css/styles.css      Mobile-first UI
 js/db.js            IndexedDB photos
-js/storage.js       Outfits, staples, trips (localStorage)
+js/storage.js       Outfits, staples, accessories, trips (localStorage)
+js/categories.js    Clothing category catalog
 js/app.js           Screens & interactions
 manifest.json       PWA manifest
 sw.js               Offline precache
