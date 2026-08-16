@@ -1803,6 +1803,68 @@ img {
   background: var(--surface);
 }
 
+.pack-outfit-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 16px 8px;
+  min-height: 48px;
+  text-align: left;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  color: var(--ink);
+}
+
+.check-group-label + .pack-outfit-check,
+.pack-outfit-check + .pack-outfit-check {
+  border-top: none;
+}
+
+.pack-outfit-check .check-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pack-outfit-check .checkbox {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+}
+
+.pack-outfit-check.partial .checkbox {
+  background: color-mix(in srgb, var(--sage) 28%, var(--surface));
+  border-color: var(--sage);
+  color: var(--sage);
+}
+
+.pack-outfit-check.done .check-label {
+  color: var(--ink-faint);
+}
+
+.pack-outfit-check.done .checkbox {
+  background: var(--sage);
+  border-color: var(--sage);
+  color: white;
+}
+
+.pack-outfit-check:hover {
+  background: var(--bg-elevated);
+}
+
+.check-item.pack-piece {
+  padding-left: 44px;
+}
+
+html[data-density="compact"] .pack-outfit-check {
+  padding: 8px 14px;
+  min-height: 40px;
+}
+
+html[data-density="compact"] .check-item.pack-piece {
+  padding-left: 40px;
+}
+
 .pack-empty-note {
   padding: 6px 16px 12px;
   font-size: 13px;
