@@ -102,6 +102,9 @@
       Suits: 'e.g. Navy suit',
       Shoes: 'e.g. White sneakers',
       Accessories: 'e.g. Chunky gold necklace',
+      Jewelry: 'e.g. Chunky gold necklace',
+      Bags: 'e.g. Crossbody bag',
+      Other: 'e.g. Silk scarf',
     };
     return map[tab] || 'e.g. White linen tee';
   }
@@ -457,7 +460,7 @@
         const allCats = [...catOrder, ...extraCats];
 
         if (!bank.length) {
-          pillsInner += `<p class="cat-empty">Add your own jewelry — “chunky gold necklace”, the pearl earrings — or tap a suggestion below.</p>`;
+          pillsInner += `<p class="cat-empty">Add your own jewelry, bags, or shoes — or tap a suggestion below.</p>`;
         }
 
         allCats.forEach((cat) => {
@@ -1417,7 +1420,7 @@
       <div class="section">
         ${hintHtml(
           'accessories',
-          'Add your own jewelry here — chunky gold necklace, the pearl earrings — just like staples. Delete anything generic that isn’t yours. Tap a piece to rename it.'
+          'Jewelry, bags, and shoes you actually pack. Add “white sneakers” or “chunky gold necklace” once, then tap them onto outfits or days.'
         )}
         <div id="accessories-list"></div>
       </div>
@@ -1430,27 +1433,32 @@
     bindHints();
 
     const list = $('#accessories-list');
-    if (!accessories.length) {
-      list.innerHTML = `
-        <div class="empty" style="padding-top:8px">
-          <h2 style="font-size:22px">Your jewelry lives here</h2>
-          <p>Add the pieces you actually own. They show up as taps when you build outfits or extras for a day — no generic “gold necklace.”</p>
-        </div>
-      `;
-    } else {
-      const order = PackStore.listAccessoryCategories().concat(
-        [...groups.keys()].filter((c) => !PackStore.listAccessoryCategories().includes(c))
-      );
-      order.forEach((cat) => {
-        const items = groups.get(cat);
-        if (!items?.length) return;
-        const section = document.createElement('div');
-        section.className = 'section';
-        section.style.marginBottom = '20px';
-        section.innerHTML = `<div class="section-head"><h2 class="section-title">${escapeHtml(
-          cat
-        )}</h2></div><div class="stack"></div>`;
-        const stack = $('.stack', section);
+    const order = PackStore.listAccessoryCategories().concat(
+      [...groups.keys()].filter((c) => !PackStore.listAccessoryCategories().includes(c))
+    );
+    order.forEach((cat) => {
+      const items = groups.get(cat) || [];
+      if (!items.length && cat !== 'Shoes' && accessories.length) return;
+      const section = document.createElement('div');
+      section.className = 'section';
+      section.style.marginBottom = '20px';
+      section.innerHTML = `
+          <div class="section-head">
+            <h2 class="section-title">${escapeHtml(cat)}</h2>
+            <button type="button" class="clothes-sub-add" data-cat="${escapeHtml(cat)}">Add</button>
+          </div>
+        `;
+      if (!items.length) {
+        const empty = document.createElement('p');
+        empty.className = 'clothes-sub-empty';
+        empty.textContent =
+          cat === 'Shoes'
+            ? 'Nothing here yet. Add the pairs you actually pack.'
+            : 'Nothing here yet. Add the pieces you actually pack.';
+        section.appendChild(empty);
+      } else {
+        const stack = document.createElement('div');
+        stack.className = 'stack';
         items.forEach((a) => {
           const row = document.createElement('div');
           row.className = 'staple-row library-row';
@@ -1472,34 +1480,41 @@
           };
           stack.appendChild(row);
         });
-        list.appendChild(section);
-      });
-    }
+        section.appendChild(stack);
+      }
+      list.appendChild(section);
+    });
+    $$('[data-cat]', list).forEach((btn) => {
+      btn.onclick = () => showAccessoryEditor(null, { category: btn.dataset.cat });
+    });
 
     $('#add-accessory-btn').onclick = () => showAccessoryEditor();
   }
 
-  function showAccessoryEditor(accessory = null) {
+  function showAccessoryEditor(accessory = null, preset = {}) {
     const isEdit = !!accessory;
+    const defaultCat = accessory?.category || preset.category || 'Jewelry';
     openSheet(
       isEdit ? 'Edit piece' : 'Add your piece',
       `
       <p class="hint" style="margin:0 0 12px">${
         isEdit
           ? 'This name is what you’ll tap when building outfits or adding extras to a day.'
-          : 'Your actual jewelry and bags — not a generic “necklace”. Add “chunky gold necklace” once, then tap it anytime.'
+          : 'Your actual jewelry, bags, and shoes — not a generic “necklace”. Add “white sneakers” once, then tap it anytime.'
       }</p>
       <form id="accessory-form">
         <div class="field">
           <label for="accessory-name">Item</label>
-          <input class="input" id="accessory-name" placeholder="Chunky gold necklace" value="${
+          <input class="input" id="accessory-name" placeholder="${escapeHtml(
+            clothingPlaceholder(defaultCat)
+          )}" value="${
             accessory ? escapeHtml(accessory.name) : ''
           }" required autocomplete="off" />
         </div>
         <div class="field">
           <label for="accessory-cat">Group</label>
           <select class="input" id="accessory-cat">
-            ${optionHtml(PackStore.listAccessoryCategories(), accessory?.category || 'Jewelry')}
+            ${optionHtml(PackStore.listAccessoryCategories(), defaultCat)}
           </select>
         </div>
         <button type="submit" class="btn btn-primary btn-block">${
@@ -1510,6 +1525,10 @@
     );
     $('#accessory-name').focus();
     $('#accessory-name').select();
+    $('#accessory-cat').onchange = () => {
+      const input = $('#accessory-name');
+      if (input && !isEdit) input.placeholder = clothingPlaceholder($('#accessory-cat').value);
+    };
     $('#accessory-form').onsubmit = (e) => {
       e.preventDefault();
       const name = $('#accessory-name').value.trim();
@@ -2285,7 +2304,7 @@
         {
           id: 'library',
           title: 'Library',
-          keywords: 'staple accessory category restore gloves bank jewelry necklace earrings bracelet chunky gold customize pieces clothes jeans tops bottoms brands levi',
+          keywords: 'staple accessory category restore gloves bank jewelry necklace earrings bracelet chunky gold customize pieces clothes jeans tops bottoms brands levi shoes sneakers bags',
           html: () => {
             const clothes = PackStore.clothingCatalogSummary();
             const clothesNote =
@@ -2294,9 +2313,9 @@
                 : 'Add Levi’s to Bottoms, drop things you never pack.';
             return `<div class="settings-list">
             ${settingNav('your-clothes', 'Your clothes', clothesNote)}
-            ${settingNav('your-accessories', 'Your jewelry & accessories', 'Add your own pieces — chunky gold necklace, pearl earrings, bags.')}
+            ${settingNav('your-accessories', 'Your jewelry & accessories', 'Add your own pieces — white sneakers, chunky gold necklace, bags.')}
             ${settingNav('staple-cats', 'Staple categories', prefs.stapleCategories.join(', '))}
-            ${settingNav('accessory-cats', 'Accessory groups', 'Folders like Jewelry and Bags — not individual pieces.')}
+            ${settingNav('accessory-cats', 'Accessory groups', 'Folders like Jewelry, Bags, and Shoes — not individual pieces.')}
             ${settingAction('restore-clothes', 'Restore hidden clothes', 'Puts back starter Tops, Bottoms, and the rest you deleted. Keeps your own items.')}
             ${settingAction('restore-staples', 'Restore missing staples', 'Adds default items you deleted, like Gloves.')}
             ${settingAction('restore-accessories', 'Restore starter accessories', 'Puts back the generic sample items if you deleted them.')}
@@ -2491,7 +2510,7 @@
         <p class="hint" style="margin:0 0 12px">${
           isStaples
             ? 'These show up when you add staples. Existing items keep their current category if you remove one here.'
-            : 'These are folders (Jewelry, Bags) — not individual pieces. Add “chunky gold necklace” under Your jewelry & accessories, not here.'
+            : 'These are folders (Jewelry, Bags, Shoes) — not individual pieces. Add “white sneakers” under Your jewelry & accessories, not here.'
         }</p>
         <div class="stack" id="cat-manage-list"></div>
         <form id="cat-manage-form" style="margin-top:16px">

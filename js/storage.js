@@ -33,10 +33,34 @@ const PackStore = (() => {
     { name: 'Tote bag', category: 'Bags' },
     { name: 'Hair ties', category: 'Other' },
     { name: 'Scarf', category: 'Other' },
+    { name: 'Sneakers', category: 'Shoes' },
+    { name: 'Sandals', category: 'Shoes' },
+    { name: 'Heels', category: 'Shoes' },
+    { name: 'Flats', category: 'Shoes' },
+    { name: 'Boots', category: 'Shoes' },
+    { name: 'Ankle boots', category: 'Shoes' },
+    { name: 'Loafers', category: 'Shoes' },
+    { name: 'Slides', category: 'Shoes' },
+    { name: 'Walking shoes', category: 'Shoes' },
+    { name: 'Dress shoes', category: 'Shoes' },
   ];
 
   const STAPLE_CAT_ORDER = ['Toiletries', 'Basics', 'Tech', 'Documents', 'Other'];
   const ACCESSORY_CAT_ORDER = ['Jewelry', 'Bags', 'Shoes', 'Other'];
+  const LEGACY_CLOTHING_SHOES = {
+    women: [
+      'Sneakers',
+      'Sandals',
+      'Heels',
+      'Flats',
+      'Boots',
+      'Loafers',
+      'Slides',
+      'Ankle boots',
+      'Walking shoes',
+    ],
+    men: ['Sneakers', 'Dress shoes', 'Boots', 'Sandals', 'Loafers', 'Walking shoes'],
+  };
   const THEME_IDS = ['linen', 'midnight', 'harbor', 'ink', 'orchard', 'ember'];
 
   const DEFAULT_PREFS = {
@@ -56,6 +80,7 @@ const PackStore = (() => {
     stapleCategories: STAPLE_CAT_ORDER.slice(),
     accessoryCategories: ACCESSORY_CAT_ORDER.slice(),
     clothingCatalog: { women: {}, men: {} },
+    migratedShoesToAccessories: false,
   };
 
   function mergePrefs(raw) {
@@ -88,6 +113,7 @@ const PackStore = (() => {
       stapleCategories,
       accessoryCategories,
       clothingCatalog,
+      migratedShoesToAccessories: !!p.migratedShoesToAccessories,
     };
   }
 
@@ -115,6 +141,7 @@ const PackStore = (() => {
         stapleCategories: STAPLE_CAT_ORDER.slice(),
         accessoryCategories: ACCESSORY_CAT_ORDER.slice(),
         clothingCatalog: { women: {}, men: {} },
+        migratedShoesToAccessories: true,
       },
     };
   }
@@ -144,15 +171,73 @@ const PackStore = (() => {
     };
   }
 
+  function migrateShoesToAccessories(state) {
+    const catalog = state.prefs.clothingCatalog || { women: {}, men: {} };
+    const hasShoesPatch = ['women', 'men'].some((gender) => catalog[gender]?.Shoes);
+    if (state.prefs.migratedShoesToAccessories && !hasShoesPatch) return false;
+
+    const alreadyMigrated = !!state.prefs.migratedShoesToAccessories;
+    const have = new Set((state.accessories || []).map((a) => a.name.toLowerCase()));
+    let hadShoesPatch = false;
+
+    function addShoe(name) {
+      const trimmed = String(name || '').trim();
+      if (!trimmed || have.has(trimmed.toLowerCase())) return;
+      have.add(trimmed.toLowerCase());
+      state.accessories.push({
+        id: uid(),
+        name: trimmed,
+        category: 'Shoes',
+      });
+    }
+
+    ['women', 'men'].forEach((gender) => {
+      const patch = catalog[gender]?.Shoes;
+      if (!patch) return;
+      hadShoesPatch = true;
+      const hidden = new Set(
+        (patch.hidden || []).map((n) => String(n || '').trim().toLowerCase()).filter(Boolean)
+      );
+      (patch.extras || []).forEach((raw) => {
+        if (!hidden.has(String(raw || '').trim().toLowerCase())) addShoe(raw);
+      });
+      if (!alreadyMigrated) {
+        (LEGACY_CLOTHING_SHOES[gender] || []).forEach((name) => {
+          if (!hidden.has(name.toLowerCase())) addShoe(name);
+        });
+      }
+      delete catalog[gender].Shoes;
+    });
+
+    if (!alreadyMigrated && !hadShoesPatch) {
+      DEFAULT_ACCESSORIES.filter((item) => item.category === 'Shoes').forEach((item) => {
+        addShoe(item.name);
+      });
+    }
+
+    state.prefs.clothingCatalog = normalizeClothingCatalog(catalog);
+    if (!alreadyMigrated) {
+      state.prefs.accessoryCategories = ensureAccessoryCategory(
+        state.prefs.accessoryCategories,
+        'Shoes',
+        'Other'
+      );
+    }
+    state.prefs.migratedShoesToAccessories = true;
+    return true;
+  }
+
   function migrateState(parsed) {
     const defaults = emptyState();
-    return {
+    const state = {
       outfits: Array.isArray(parsed.outfits) ? parsed.outfits : [],
       staples: Array.isArray(parsed.staples) ? parsed.staples : defaults.staples,
-      accessories: Array.isArray(parsed.accessories) ? parsed.accessories : defaults.accessories,
+      accessories: Array.isArray(parsed.accessories) ? parsed.accessories.slice() : defaults.accessories,
       trips: Array.isArray(parsed.trips) ? parsed.trips.map(migrateTrip) : [],
       prefs: mergePrefs(parsed.prefs),
     };
+    migrateShoesToAccessories(state);
+    return state;
   }
 
   function load() {
@@ -163,7 +248,17 @@ const PackStore = (() => {
         save(state);
         return state;
       }
-      return migrateState(JSON.parse(raw));
+      const parsed = JSON.parse(raw);
+      const state = migrateState(parsed);
+      const hadClothingShoes =
+        parsed.prefs?.clothingCatalog?.women?.Shoes || parsed.prefs?.clothingCatalog?.men?.Shoes;
+      if (
+        !parsed.prefs?.migratedShoesToAccessories ||
+        hadClothingShoes
+      ) {
+        save(state);
+      }
+      return state;
     } catch {
       return emptyState();
     }
@@ -227,6 +322,15 @@ const PackStore = (() => {
       out.push(name);
     });
     return out;
+  }
+
+  function ensureAccessoryCategory(list, name, before) {
+    const cats = Array.isArray(list) ? list.slice() : [];
+    if (cats.some((c) => c.toLowerCase() === String(name).toLowerCase())) return cats;
+    const idx = before ? cats.findIndex((c) => c.toLowerCase() === String(before).toLowerCase()) : -1;
+    if (idx >= 0) cats.splice(idx, 0, name);
+    else cats.push(name);
+    return cats;
   }
 
   function listStapleCategories() {

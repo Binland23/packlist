@@ -60,17 +60,6 @@ const ClothingCatalog = (() => {
       'Romper',
       'Slip dress',
     ],
-    Shoes: [
-      'Sneakers',
-      'Sandals',
-      'Heels',
-      'Flats',
-      'Boots',
-      'Loafers',
-      'Slides',
-      'Ankle boots',
-      'Walking shoes',
-    ],
   };
 
   const MEN = {
@@ -108,19 +97,23 @@ const ClothingCatalog = (() => {
       'Tuxedo',
       'Waistcoat',
     ],
-    Shoes: [
-      'Sneakers',
-      'Dress shoes',
-      'Boots',
-      'Sandals',
-      'Loafers',
-      'Walking shoes',
-    ],
   };
 
   const ACCESSORY_TABS = {
     Jewelry: ['Earrings', 'Necklace', 'Bracelet', 'Ring', 'Watch', 'Hoops', 'Studs'],
     Bags: ['Tote bag', 'Crossbody bag', 'Clutch', 'Backpack', 'Belt bag'],
+    Shoes: [
+      'Sneakers',
+      'Sandals',
+      'Heels',
+      'Flats',
+      'Boots',
+      'Ankle boots',
+      'Loafers',
+      'Slides',
+      'Walking shoes',
+      'Dress shoes',
+    ],
     Other: ['Belt', 'Sunglasses', 'Hat', 'Scarf', 'Hair ties', 'Hair clip'],
   };
 
