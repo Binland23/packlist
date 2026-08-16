@@ -257,7 +257,7 @@ const PackStore = (() => {
   }
 
   function emptyClothingPatch() {
-    return { extras: [], hidden: [] };
+    return { extras: [], hidden: [], order: [] };
   }
 
   function normalizeClothingPatch(raw) {
@@ -265,7 +265,12 @@ const PackStore = (() => {
     return {
       extras: uniqueItemNames(raw.extras),
       hidden: uniqueItemNames(raw.hidden),
+      order: uniqueItemNames(raw.order),
     };
+  }
+
+  function clothingPatchIsEmpty(patch) {
+    return !patch.extras.length && !patch.hidden.length && !patch.order.length;
   }
 
   function normalizeClothingCatalog(raw) {
@@ -275,7 +280,7 @@ const PackStore = (() => {
       const src = raw[gender] && typeof raw[gender] === 'object' ? raw[gender] : {};
       Object.keys(src).forEach((tab) => {
         const patch = normalizeClothingPatch(src[tab]);
-        if (patch.extras.length || patch.hidden.length) out[gender][tab] = patch;
+        if (!clothingPatchIsEmpty(patch)) out[gender][tab] = patch;
       });
     });
     return out;
@@ -295,7 +300,7 @@ const PackStore = (() => {
     const catalog = normalizeClothingCatalog(getPrefs().clothingCatalog);
     const next = normalizeClothingPatch(patch);
     if (!catalog[g]) catalog[g] = {};
-    if (!next.extras.length && !next.hidden.length) delete catalog[g][tab];
+    if (clothingPatchIsEmpty(next)) delete catalog[g][tab];
     else catalog[g][tab] = next;
     setPref('clothingCatalog', catalog);
     return next;
@@ -321,7 +326,22 @@ const PackStore = (() => {
     const kept = defaults.filter(
       (name) => !hidden.has(name.toLowerCase()) && !extraKeys.has(name.toLowerCase())
     );
-    return [...extras, ...kept];
+    const merged = [...extras, ...kept];
+    if (!patch.order.length) return merged;
+
+    const byKey = new Map(merged.map((name) => [name.toLowerCase(), name]));
+    const seen = new Set();
+    const ordered = [];
+    patch.order.forEach((name) => {
+      const key = name.toLowerCase();
+      const match = byKey.get(key);
+      if (!match || seen.has(key)) return;
+      seen.add(key);
+      ordered.push(match);
+    });
+    const leftoverExtras = extras.filter((name) => !seen.has(name.toLowerCase()));
+    const leftoverDefaults = kept.filter((name) => !seen.has(name.toLowerCase()));
+    return [...leftoverExtras, ...ordered, ...leftoverDefaults];
   }
 
   function clothingGroupsFor(gender) {
@@ -343,6 +363,19 @@ const PackStore = (() => {
     return getClothingPatch(gender, tab).extras.some((n) => n.toLowerCase() === key);
   }
 
+  function prependClothingOrder(patch, name) {
+    if (!patch.order.length) return;
+    const key = normalizeName(name).toLowerCase();
+    if (!key) return;
+    patch.order = [name, ...patch.order.filter((n) => n.toLowerCase() !== key)];
+  }
+
+  function dropFromClothingOrder(patch, name) {
+    const key = normalizeName(name).toLowerCase();
+    if (!key) return;
+    patch.order = patch.order.filter((n) => n.toLowerCase() !== key);
+  }
+
   function addClothingItem(gender, tab, name) {
     const g = clothingGender(gender);
     const tabs = listClothingTabs(g);
@@ -359,12 +392,14 @@ const PackStore = (() => {
       patch.hidden.splice(hiddenIdx, 1);
       const defaults = ClothingCatalog.pillsFor(g, tab) || [];
       if (!defaults.some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
-        patch.extras.push(trimmed);
+        patch.extras.unshift(trimmed);
       }
+      prependClothingOrder(patch, trimmed);
       setClothingPatch(g, tab, patch);
       return { action: 'restored', name: trimmed };
     }
-    patch.extras.push(trimmed);
+    patch.extras.unshift(trimmed);
+    prependClothingOrder(patch, trimmed);
     setClothingPatch(g, tab, patch);
     return { action: 'added', name: trimmed };
   }
@@ -377,6 +412,7 @@ const PackStore = (() => {
     const extraIdx = patch.extras.findIndex((n) => n.toLowerCase() === trimmed.toLowerCase());
     if (extraIdx >= 0) {
       patch.extras.splice(extraIdx, 1);
+      dropFromClothingOrder(patch, trimmed);
       setClothingPatch(g, tab, patch);
       return { action: 'removed', name: trimmed };
     }
@@ -385,6 +421,7 @@ const PackStore = (() => {
       if (!patch.hidden.some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
         patch.hidden.push(trimmed);
       }
+      dropFromClothingOrder(patch, trimmed);
       setClothingPatch(g, tab, patch);
       return { action: 'hidden', name: trimmed };
     }
@@ -410,10 +447,40 @@ const PackStore = (() => {
     );
     if (clash) return { action: 'exists', name: trimmed };
 
+    const oldKey = normalizeName(oldName).toLowerCase();
+    const orderIdx =
+      fromTab === destTab
+        ? getClothingPatch(g, fromTab).order.findIndex((n) => n.toLowerCase() === oldKey)
+        : -1;
+
     removeClothingItem(g, fromTab, oldName);
     const added = addClothingItem(g, destTab, trimmed);
     if (added.action === 'exists') return added;
+    if (fromTab === destTab) {
+      const patch = getClothingPatch(g, destTab);
+      if (orderIdx >= 0 && patch.order.length) {
+        dropFromClothingOrder(patch, trimmed);
+        patch.order.splice(Math.min(orderIdx, patch.order.length), 0, trimmed);
+        setClothingPatch(g, destTab, patch);
+      }
+    }
     return { action: 'renamed', name: trimmed, tab: destTab };
+  }
+
+  function reorderClothingItems(gender, tab, names) {
+    const g = clothingGender(gender);
+    const tabs = listClothingTabs(g);
+    if (!tabs.includes(tab)) return listClothingItems(g, tab);
+    const visible = listClothingItems(g, tab);
+    const visibleKeys = new Set(visible.map((n) => n.toLowerCase()));
+    const ordered = uniqueItemNames(names).filter((n) => visibleKeys.has(n.toLowerCase()));
+    visible.forEach((name) => {
+      if (!ordered.some((n) => n.toLowerCase() === name.toLowerCase())) ordered.push(name);
+    });
+    const patch = getClothingPatch(g, tab);
+    patch.order = ordered;
+    setClothingPatch(g, tab, patch);
+    return listClothingItems(g, tab);
   }
 
   function restoreClothingDefaults() {
@@ -422,8 +489,12 @@ const PackStore = (() => {
     ['women', 'men'].forEach((g) => {
       Object.keys(catalog[g] || {}).forEach((tab) => {
         restored += (catalog[g][tab].hidden || []).length;
-        catalog[g][tab] = { extras: catalog[g][tab].extras || [], hidden: [] };
-        if (!catalog[g][tab].extras.length) delete catalog[g][tab];
+        catalog[g][tab] = {
+          extras: catalog[g][tab].extras || [],
+          hidden: [],
+          order: catalog[g][tab].order || [],
+        };
+        if (!catalog[g][tab].extras.length && !catalog[g][tab].order.length) delete catalog[g][tab];
       });
     });
     setPref('clothingCatalog', catalog);
@@ -1003,6 +1074,7 @@ const PackStore = (() => {
     addClothingItem,
     removeClothingItem,
     renameClothingItem,
+    reorderClothingItems,
     restoreClothingDefaults,
     clothingCatalogSummary,
     restoreMissingDefaults,

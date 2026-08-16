@@ -23,6 +23,7 @@
   let route = { name: 'trips', params: {} };
   let toastTimer = null;
   let sheetOnClose = null;
+  let activeSortAbort = null;
 
   // ——— Utils ———
   function escapeHtml(str) {
@@ -50,6 +51,8 @@
     '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>';
   const CHEV_SVG =
     '<svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>';
+  const GRIP_SVG =
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
 
   const THEMES = [
     { id: 'linen', name: 'Linen', note: 'Warm paper & terracotta', wash: '#F4EFE6', accent: '#C45C3E' },
@@ -115,6 +118,139 @@
         setTimeout(remove, 280);
       };
     });
+  }
+
+  function bindRowSort(stack, onReorder) {
+    if (!stack) return;
+
+    stack.addEventListener('pointerdown', (e) => {
+      const handle = e.target.closest('.drag-handle');
+      if (!handle || !stack.contains(handle)) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      const row = handle.closest('[data-sort-id]');
+      if (!row || row.parentElement !== stack) return;
+      e.preventDefault();
+      e.stopPropagation();
+      beginRowSort(e, stack, row, handle, onReorder);
+    });
+  }
+
+  function beginRowSort(startEvent, stack, row, handle, onReorder) {
+    const rect = row.getBoundingClientRect();
+    const placeholder = document.createElement('div');
+    placeholder.className = 'sort-placeholder';
+    placeholder.style.height = `${rect.height}px`;
+
+    const ghost = row.cloneNode(true);
+    ghost.classList.add('sort-ghost');
+    ghost.setAttribute('aria-hidden', 'true');
+    ghost.style.width = `${rect.width}px`;
+    ghost.style.left = `${rect.left}px`;
+    ghost.style.top = `${rect.top}px`;
+    ghost.querySelectorAll('button').forEach((btn) => {
+      btn.tabIndex = -1;
+      btn.disabled = true;
+    });
+    document.body.appendChild(ghost);
+
+    row.after(placeholder);
+    row.classList.add('sorting-row');
+
+    const state = {
+      pointerId: startEvent.pointerId,
+      offsetY: startEvent.clientY - rect.top,
+      offsetX: startEvent.clientX - rect.left,
+      lastY: startEvent.clientY,
+      autoScroll: 0,
+      moved: false,
+      done: false,
+    };
+
+    try {
+      handle.setPointerCapture(startEvent.pointerId);
+    } catch {
+      /* capture is best-effort on older browsers */
+    }
+
+    document.body.classList.add('sorting');
+
+    const onMove = (event) => {
+      if (state.done || event.pointerId !== state.pointerId) return;
+      event.preventDefault();
+      state.moved = true;
+      state.lastY = event.clientY;
+      ghost.style.top = `${event.clientY - state.offsetY}px`;
+      ghost.style.left = `${event.clientX - state.offsetX}px`;
+      movePlaceholder(event.clientY);
+      const topEdge = 80;
+      const bottomEdge = window.innerHeight - 96;
+      if (event.clientY < topEdge) state.autoScroll = -14;
+      else if (event.clientY > bottomEdge) state.autoScroll = 14;
+      else state.autoScroll = 0;
+    };
+
+    const onUp = (event) => {
+      if (event.pointerId !== state.pointerId) return;
+      finish();
+    };
+
+    const onTouchMove = (event) => {
+      event.preventDefault();
+    };
+
+    function movePlaceholder(y) {
+      const kids = [...stack.children].filter((el) => el !== row && el !== placeholder);
+      for (const kid of kids) {
+        const box = kid.getBoundingClientRect();
+        if (y < box.top + box.height / 2) {
+          stack.insertBefore(placeholder, kid);
+          return;
+        }
+      }
+      stack.appendChild(placeholder);
+    }
+
+    let raf = requestAnimationFrame(function loop() {
+      if (state.done) return;
+      if (state.autoScroll) {
+        window.scrollBy(0, state.autoScroll);
+        movePlaceholder(state.lastY);
+      }
+      raf = requestAnimationFrame(loop);
+    });
+
+    function finish() {
+      if (state.done) return;
+      state.done = true;
+      if (activeSortAbort === finish) activeSortAbort = null;
+      cancelAnimationFrame(raf);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('touchmove', onTouchMove);
+      try {
+        handle.releasePointerCapture(state.pointerId);
+      } catch {
+        /* already released */
+      }
+      document.body.classList.remove('sorting');
+      ghost.remove();
+      placeholder.replaceWith(row);
+      row.classList.remove('sorting-row');
+      if (!state.moved) return;
+      const names = [...stack.querySelectorAll('[data-sort-id]')].map((el) => el.dataset.sortId);
+      onReorder(names);
+    }
+
+    activeSortAbort = finish;
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onUp);
+    document.addEventListener('pointermove', onMove, { passive: false });
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
   }
 
   // ——— Routing ———
@@ -1393,7 +1529,7 @@
       <div class="section">
         ${hintHtml(
           'clothes',
-          'This is your Tops, Bottoms, and everything else — the same lists you tap when packing a day. Add Levi’s to Bottoms, drop things you never pack.'
+          'This is your Tops, Bottoms, and everything else — the same lists you tap when packing a day. Drag the grip to put pieces in the order you like.'
         )}
         <div class="gender-toggle" role="tablist" aria-label="Clothing fit">
           <button type="button" class="gender-btn${gender === 'women' ? ' active' : ''}" data-gender="women">Women</button>
@@ -1448,8 +1584,12 @@
       items.forEach((name) => {
         const custom = PackStore.isCustomClothingItem(gender, tab, name);
         const row = document.createElement('div');
-        row.className = 'staple-row library-row';
+        row.className = 'staple-row library-row sortable-row';
+        row.dataset.sortId = name;
         row.innerHTML = `
+          <button type="button" class="drag-handle" aria-label="Reorder ${escapeHtml(name)}">
+            ${GRIP_SVG}
+          </button>
           <button type="button" class="library-edit" aria-label="Edit ${escapeHtml(name)}">
             <span class="name">${escapeHtml(name)}</span>
             <span class="library-edit-hint${custom ? ' yours' : ''}">${custom ? 'Yours' : 'Edit'}</span>
@@ -1467,6 +1607,9 @@
           render();
         };
         stack.appendChild(row);
+      });
+      bindRowSort(stack, (names) => {
+        PackStore.reorderClothingItems(gender, tab, names);
       });
       list.appendChild(stack);
     }
@@ -2371,6 +2514,7 @@
 
   // ——— Main render ———
   async function render() {
+    if (activeSortAbort) activeSortAbort();
     route = parseHash();
     syncTabs();
     closeSheet();
