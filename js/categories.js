@@ -28,20 +28,11 @@ const ClothingCatalog = (() => {
       'Sleeveless top',
       'Basic top',
     ],
-    Layers: [
-      'Cardigan',
-      'Blazer',
-      'Jacket',
-      'Coat',
-      'Vest',
-      'Hoodie',
-      'Denim jacket',
-      'Trench coat',
-      'Windbreaker',
-      'Fleece',
-      'Overshirt',
-      'Puffer',
-    ],
+    Layers: {
+      Sweaters: ['Cardigan', 'Hoodie', 'Fleece'],
+      Jackets: ['Blazer', 'Jacket', 'Vest', 'Denim jacket', 'Windbreaker', 'Overshirt'],
+      Coats: ['Coat', 'Trench coat', 'Puffer'],
+    },
     Bottoms: [
       'Jeans',
       'Pants',
@@ -96,18 +87,11 @@ const ClothingCatalog = (() => {
       'Hoodie',
       'Oversized t-shirt',
     ],
-    Layers: [
-      'Jacket',
-      'Blazer',
-      'Coat',
-      'Vest',
-      'Cardigan',
-      'Overshirt',
-      'Windbreaker',
-      'Denim jacket',
-      'Puffer',
-      'Fleece',
-    ],
+    Layers: {
+      Sweaters: ['Cardigan', 'Fleece'],
+      Jackets: ['Jacket', 'Blazer', 'Vest', 'Overshirt', 'Windbreaker', 'Denim jacket'],
+      Coats: ['Coat', 'Puffer'],
+    },
     Bottoms: [
       'Jeans',
       'Chinos',
@@ -140,6 +124,14 @@ const ClothingCatalog = (() => {
     Other: ['Belt', 'Sunglasses', 'Hat', 'Scarf', 'Hair ties', 'Hair clip'],
   };
 
+  function flattenGroup(value) {
+    if (Array.isArray(value)) return value.slice();
+    if (value && typeof value === 'object') {
+      return Object.values(value).flatMap((items) => (Array.isArray(items) ? items : []));
+    }
+    return [];
+  }
+
   function groupsFor(gender) {
     return gender === 'men' ? MEN : WOMEN;
   }
@@ -155,7 +147,34 @@ const ClothingCatalog = (() => {
   function pillsFor(gender, tab) {
     if (tab === 'Accessories') return null;
     const groups = groupsFor(gender);
-    return groups[tab] || [];
+    return flattenGroup(groups[tab]);
+  }
+
+  function subgroupNamesFor(gender, tab) {
+    const value = groupsFor(gender)[tab];
+    if (value && !Array.isArray(value) && typeof value === 'object') return Object.keys(value);
+    return [];
+  }
+
+  function pillsBySubgroup(gender, tab) {
+    const value = groupsFor(gender)[tab];
+    if (!value || Array.isArray(value) || typeof value !== 'object') return null;
+    const out = {};
+    Object.keys(value).forEach((sub) => {
+      out[sub] = Array.isArray(value[sub]) ? value[sub].slice() : [];
+    });
+    return out;
+  }
+
+  function defaultSubgroup(gender, tab, name) {
+    const groups = pillsBySubgroup(gender, tab);
+    if (!groups) return null;
+    const key = String(name || '').trim().toLowerCase();
+    if (!key) return null;
+    const found = Object.keys(groups).find((sub) =>
+      groups[sub].some((item) => item.toLowerCase() === key)
+    );
+    return found || null;
   }
 
   function searchAll(gender, query, clothingGroups) {
@@ -164,6 +183,14 @@ const ClothingCatalog = (() => {
     const hits = [];
     const groups = clothingGroups && typeof clothingGroups === 'object' ? clothingGroups : groupsFor(gender);
     Object.entries(groups).forEach(([group, items]) => {
+      if (items && !Array.isArray(items) && typeof items === 'object') {
+        Object.entries(items).forEach(([sub, list]) => {
+          (list || []).forEach((name) => {
+            if (name.toLowerCase().includes(q)) hits.push({ name, group, sub });
+          });
+        });
+        return;
+      }
       (items || []).forEach((name) => {
         if (name.toLowerCase().includes(q)) hits.push({ name, group });
       });
@@ -181,6 +208,9 @@ const ClothingCatalog = (() => {
     groupNamesFor,
     tabsFor,
     pillsFor,
+    subgroupNamesFor,
+    pillsBySubgroup,
+    defaultSubgroup,
     searchAll,
     ACCESSORY_TABS,
   };

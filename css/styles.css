@@ -1617,6 +1617,35 @@ body.sorting {
   margin-top: 4px;
 }
 
+.clothes-subgroup {
+  margin-bottom: 22px;
+}
+
+.clothes-subgroup .section-head {
+  margin-bottom: 8px;
+}
+
+.clothes-subgroup .section-title {
+  font-size: 16px;
+}
+
+.clothes-sub-add {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  min-height: 32px;
+}
+
+.clothes-sub-empty {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 14px;
+  color: var(--ink-faint);
+  background: var(--surface);
+  border: 1px dashed var(--border-strong);
+  border-radius: 14px;
+}
+
 .cat-tabs::-webkit-scrollbar {
   display: none;
 }

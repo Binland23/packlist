@@ -85,7 +85,15 @@
       .join('');
   }
 
-  function clothingPlaceholder(tab) {
+  function clothingPlaceholder(tab, sub) {
+    if (tab === 'Layers') {
+      const layers = {
+        Sweaters: 'e.g. Cream cardigan',
+        Jackets: 'e.g. Navy blazer',
+        Coats: 'e.g. Wool coat',
+      };
+      return layers[sub] || 'e.g. Navy blazer';
+    }
     const map = {
       Tops: 'e.g. White linen tee',
       Layers: 'e.g. Navy blazer',
@@ -412,6 +420,7 @@
       const searching = q.length > 0;
 
       let pillsInner = '';
+      const clothingSubs = tab === 'Accessories' ? [] : PackStore.listClothingSubgroups(gender, tab);
       if (searching) {
         const hits = PackStore.searchClothing(gender, q);
         const bankHits = PackStore.listAccessories().filter((a) =>
@@ -427,7 +436,7 @@
           }
           if (hits.length) {
             pillsInner += `<p class="cat-group-label">Categories</p><div class="cat-pills">${hits
-              .map((h) => pillButton(h.name, h.group))
+              .map((h) => pillButton(h.name, h.sub || h.group))
               .join('')}</div>`;
           }
         }
@@ -465,11 +474,21 @@
           }
         });
       } else {
-        const pills = PackStore.listClothingItems(gender, tab) || [];
-        if (!pills.length) {
+        const sections = PackStore.listClothingSections(gender, tab);
+        const hasItems = sections.some((section) => section.items.length);
+        if (!hasItems) {
           pillsInner = `<p class="cat-empty">Nothing in ${escapeHtml(tab)} yet. Add your own below, or customize this list.</p>`;
+        } else if (sections.length === 1 && !sections[0].label) {
+          pillsInner = `<div class="cat-pills">${sections[0].items.map((n) => pillButton(n)).join('')}</div>`;
         } else {
-          pillsInner = `<div class="cat-pills">${pills.map((n) => pillButton(n)).join('')}</div>`;
+          pillsInner = sections
+            .map((section) => {
+              if (!section.items.length) return '';
+              return `<p class="cat-group-label">${escapeHtml(section.label)}</p><div class="cat-pills">${section.items
+                .map((n) => pillButton(n))
+                .join('')}</div>`;
+            })
+            .join('');
         }
       }
 
@@ -522,7 +541,7 @@
             }</label>
             <div class="input-row">
               <input class="input" id="cat-custom-input" placeholder="${escapeHtml(
-                clothingPlaceholder(tab)
+                clothingPlaceholder(tab, clothingSubs[0])
               )}" autocomplete="off" />
               <button type="button" class="btn btn-secondary" id="cat-custom-add" style="min-width:72px">Add</button>
             </div>
@@ -538,7 +557,17 @@
                     <input type="checkbox" id="cat-save-bank" checked />
                     Save to my jewelry &amp; accessories
                   </label>`
-                : `<label class="check-inline">
+                : `${
+                    clothingSubs.length
+                      ? `<div class="field" style="margin-top:10px">
+                          <label for="cat-custom-sub">Save under</label>
+                          <select class="input" id="cat-custom-sub">
+                            ${optionHtml(clothingSubs, clothingSubs[0])}
+                          </select>
+                        </div>`
+                      : ''
+                  }
+                  <label class="check-inline">
                     <input type="checkbox" id="cat-save-list" checked />
                     Save to my ${escapeHtml(tab)} list
                   </label>`
@@ -603,7 +632,8 @@
           const category = $('#cat-custom-cat', container)?.value || 'Jewelry';
           if (saveBank) PackStore.addAccessory({ name, category });
         } else if ($('#cat-save-list', container)?.checked) {
-          PackStore.addClothingItem(gender, tab, name);
+          const sub = $('#cat-custom-sub', container)?.value || '';
+          PackStore.addClothingItem(gender, tab, name, sub || undefined);
         }
         markPicked(name);
         if (onPick) onPick(name);
@@ -1512,7 +1542,9 @@
     const tabs = PackStore.listClothingTabs(gender);
     let tab = route.params.tab;
     if (!tabs.includes(tab)) tab = tabs[0];
-    const items = PackStore.listClothingItems(gender, tab);
+    const sections = PackStore.listClothingSections(gender, tab);
+    const hasItems = sections.some((section) => section.items.length);
+    const hasSubs = sections.some((section) => section.label);
 
     setChrome({
       title: 'Clothes',
@@ -1571,22 +1603,52 @@
     });
 
     const list = $('#clothes-list');
-    if (!items.length) {
+    if (!hasItems && !hasSubs) {
       list.innerHTML = `
         <div class="empty" style="padding-top:8px">
           <h2 style="font-size:22px">Nothing in ${escapeHtml(tab)}</h2>
           <p>Add the ${escapeHtml(tab.toLowerCase())} you actually pack — a specific brand of jeans, the tee you always bring.</p>
         </div>
       `;
+    } else if (!hasSubs) {
+      list.appendChild(buildClothingStack(gender, tab, sections[0].items));
     } else {
-      const stack = document.createElement('div');
-      stack.className = 'stack';
-      items.forEach((name) => {
-        const custom = PackStore.isCustomClothingItem(gender, tab, name);
-        const row = document.createElement('div');
-        row.className = 'staple-row library-row sortable-row';
-        row.dataset.sortId = name;
-        row.innerHTML = `
+      sections.forEach((section) => {
+        const block = document.createElement('div');
+        block.className = 'clothes-subgroup';
+        block.innerHTML = `
+          <div class="section-head">
+            <h2 class="section-title">${escapeHtml(section.label)}</h2>
+            <button type="button" class="clothes-sub-add" data-sub="${escapeHtml(section.id)}">Add</button>
+          </div>
+        `;
+        if (section.items.length) {
+          block.appendChild(buildClothingStack(gender, tab, section.items, section.id));
+        } else {
+          const empty = document.createElement('p');
+          empty.className = 'clothes-sub-empty';
+          empty.textContent = `Nothing in ${section.label} yet.`;
+          block.appendChild(empty);
+        }
+        list.appendChild(block);
+      });
+      $$('.clothes-sub-add', list).forEach((btn) => {
+        btn.onclick = () => showClothingEditor({ gender, tab, sub: btn.dataset.sub });
+      });
+    }
+
+    $('#add-clothes-btn').onclick = () => showClothingEditor({ gender, tab });
+  }
+
+  function buildClothingStack(gender, tab, items, sub = '') {
+    const stack = document.createElement('div');
+    stack.className = 'stack';
+    items.forEach((name) => {
+      const custom = PackStore.isCustomClothingItem(gender, tab, name);
+      const row = document.createElement('div');
+      row.className = 'staple-row library-row sortable-row';
+      row.dataset.sortId = name;
+      row.innerHTML = `
           <button type="button" class="drag-handle" aria-label="Reorder ${escapeHtml(name)}">
             ${GRIP_SVG}
           </button>
@@ -1598,28 +1660,45 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
           </button>
         `;
-        row.querySelector('.library-edit').onclick = () =>
-          showClothingEditor({ gender, tab, name });
-        row.querySelector('.del').onclick = () => {
-          if (!askConfirm(`Remove “${name}” from ${tab}?`)) return;
-          PackStore.removeClothingItem(gender, tab, name);
-          toast(`Removed from ${tab}`);
-          render();
-        };
-        stack.appendChild(row);
-      });
-      bindRowSort(stack, (names) => {
-        PackStore.reorderClothingItems(gender, tab, names);
-      });
-      list.appendChild(stack);
-    }
-
-    $('#add-clothes-btn').onclick = () => showClothingEditor({ gender, tab });
+      row.querySelector('.library-edit').onclick = () =>
+        showClothingEditor({ gender, tab, name, sub: PackStore.clothingSubgroup(gender, tab, name) || sub });
+      row.querySelector('.del').onclick = () => {
+        if (!askConfirm(`Remove “${name}” from ${tab}?`)) return;
+        PackStore.removeClothingItem(gender, tab, name);
+        toast(`Removed from ${tab}`);
+        render();
+      };
+      stack.appendChild(row);
+    });
+    bindRowSort(stack, (names) => {
+      PackStore.reorderClothingItems(gender, tab, names, sub || undefined);
+    });
+    return stack;
   }
 
-  function showClothingEditor({ gender, tab, name = '' } = {}) {
+  function showClothingEditor({ gender, tab, name = '', sub = '' } = {}) {
     const isEdit = !!name;
     const tabs = PackStore.listClothingTabs(gender);
+    const initialSub =
+      sub ||
+      (name ? PackStore.clothingSubgroup(gender, tab, name) : '') ||
+      PackStore.listClothingSubgroups(gender, tab)[0] ||
+      '';
+
+    function subFieldHtml(currentTab, selected) {
+      const subs = PackStore.listClothingSubgroups(gender, currentTab);
+      if (!subs.length) return '';
+      const current = selected && subs.includes(selected) ? selected : subs[0];
+      return `
+        <div class="field" id="clothes-sub-field">
+          <label for="clothes-sub">Type</label>
+          <select class="input" id="clothes-sub">
+            ${optionHtml(subs, current)}
+          </select>
+        </div>
+      `;
+    }
+
     openSheet(
       isEdit ? `Edit ${tab} item` : `Add to ${tab}`,
       `
@@ -1634,7 +1713,7 @@
         <div class="field">
           <label for="clothes-name">Item</label>
           <input class="input" id="clothes-name" placeholder="${escapeHtml(
-            clothingPlaceholder(tab)
+            clothingPlaceholder(tab, initialSub)
           )}" value="${escapeHtml(name)}" required autocomplete="off" />
         </div>
         <div class="field">
@@ -1643,6 +1722,7 @@
             ${optionHtml(tabs, tab)}
           </select>
         </div>
+        ${subFieldHtml(tab, initialSub)}
         <button type="submit" class="btn btn-primary btn-block">${
           isEdit ? 'Save changes' : `Save to ${escapeHtml(tab)}`
         }</button>
@@ -1651,28 +1731,46 @@
     );
     $('#clothes-name').focus();
     $('#clothes-name').select();
-    $('#clothes-cat').onchange = () => {
+
+    function syncDependentFields() {
       const nextTab = $('#clothes-cat').value;
+      const currentSub = $('#clothes-sub')?.value || initialSub;
+      const catField = $('#clothes-cat').closest('.field');
+      const existing = $('#clothes-sub-field');
+      if (existing) existing.remove();
+      const html = subFieldHtml(nextTab, currentSub);
+      if (html) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html.trim();
+        catField.after(tmp.firstElementChild);
+      }
       const submit = $('#clothes-form button[type="submit"]');
       if (!isEdit && submit) submit.textContent = `Save to ${nextTab}`;
-    };
+      const input = $('#clothes-name');
+      if (input && !isEdit) {
+        input.placeholder = clothingPlaceholder(nextTab, $('#clothes-sub')?.value);
+      }
+    }
+
+    $('#clothes-cat').onchange = syncDependentFields;
     $('#clothes-form').onsubmit = (e) => {
       e.preventDefault();
       const nextName = $('#clothes-name').value.trim();
       const nextTab = $('#clothes-cat').value;
+      const nextSub = $('#clothes-sub')?.value || '';
       if (!nextName) return;
       if (isEdit) {
-        const result = PackStore.renameClothingItem(gender, tab, name, nextName, nextTab);
+        const result = PackStore.renameClothingItem(gender, tab, name, nextName, nextTab, nextSub || undefined);
         closeSheet();
         if (result.action === 'exists') toast('That name is already on this list');
         else toast('Updated');
         navigate(clothesHash(result.tab || nextTab, gender));
         return;
       }
-      const result = PackStore.addClothingItem(gender, nextTab, nextName);
+      const result = PackStore.addClothingItem(gender, nextTab, nextName, nextSub || undefined);
       closeSheet();
       if (result.action === 'exists') toast('Already on this list');
-      else toast(`Saved to ${nextTab}`);
+      else toast(result.sub ? `Saved to ${nextTab} · ${result.sub}` : `Saved to ${nextTab}`);
       navigate(clothesHash(nextTab, gender));
     };
   }
