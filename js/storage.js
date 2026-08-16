@@ -33,10 +33,34 @@ const PackStore = (() => {
     { name: 'Tote bag', category: 'Bags' },
     { name: 'Hair ties', category: 'Other' },
     { name: 'Scarf', category: 'Other' },
+    { name: 'Sneakers', category: 'Shoes' },
+    { name: 'Sandals', category: 'Shoes' },
+    { name: 'Heels', category: 'Shoes' },
+    { name: 'Flats', category: 'Shoes' },
+    { name: 'Boots', category: 'Shoes' },
+    { name: 'Ankle boots', category: 'Shoes' },
+    { name: 'Loafers', category: 'Shoes' },
+    { name: 'Slides', category: 'Shoes' },
+    { name: 'Walking shoes', category: 'Shoes' },
+    { name: 'Dress shoes', category: 'Shoes' },
   ];
 
   const STAPLE_CAT_ORDER = ['Toiletries', 'Basics', 'Tech', 'Documents', 'Other'];
   const ACCESSORY_CAT_ORDER = ['Jewelry', 'Bags', 'Shoes', 'Other'];
+  const LEGACY_CLOTHING_SHOES = {
+    women: [
+      'Sneakers',
+      'Sandals',
+      'Heels',
+      'Flats',
+      'Boots',
+      'Loafers',
+      'Slides',
+      'Ankle boots',
+      'Walking shoes',
+    ],
+    men: ['Sneakers', 'Dress shoes', 'Boots', 'Sandals', 'Loafers', 'Walking shoes'],
+  };
   const THEME_IDS = ['linen', 'midnight', 'harbor', 'ink', 'orchard', 'ember'];
 
   const DEFAULT_PREFS = {
@@ -56,6 +80,7 @@ const PackStore = (() => {
     stapleCategories: STAPLE_CAT_ORDER.slice(),
     accessoryCategories: ACCESSORY_CAT_ORDER.slice(),
     clothingCatalog: { women: {}, men: {} },
+    migratedShoesToAccessories: false,
   };
 
   function mergePrefs(raw) {
@@ -88,6 +113,7 @@ const PackStore = (() => {
       stapleCategories,
       accessoryCategories,
       clothingCatalog,
+      migratedShoesToAccessories: !!p.migratedShoesToAccessories,
     };
   }
 
@@ -115,6 +141,7 @@ const PackStore = (() => {
         stapleCategories: STAPLE_CAT_ORDER.slice(),
         accessoryCategories: ACCESSORY_CAT_ORDER.slice(),
         clothingCatalog: { women: {}, men: {} },
+        migratedShoesToAccessories: true,
       },
     };
   }
@@ -144,15 +171,73 @@ const PackStore = (() => {
     };
   }
 
+  function migrateShoesToAccessories(state) {
+    const catalog = state.prefs.clothingCatalog || { women: {}, men: {} };
+    const hasShoesPatch = ['women', 'men'].some((gender) => catalog[gender]?.Shoes);
+    if (state.prefs.migratedShoesToAccessories && !hasShoesPatch) return false;
+
+    const alreadyMigrated = !!state.prefs.migratedShoesToAccessories;
+    const have = new Set((state.accessories || []).map((a) => a.name.toLowerCase()));
+    let hadShoesPatch = false;
+
+    function addShoe(name) {
+      const trimmed = String(name || '').trim();
+      if (!trimmed || have.has(trimmed.toLowerCase())) return;
+      have.add(trimmed.toLowerCase());
+      state.accessories.push({
+        id: uid(),
+        name: trimmed,
+        category: 'Shoes',
+      });
+    }
+
+    ['women', 'men'].forEach((gender) => {
+      const patch = catalog[gender]?.Shoes;
+      if (!patch) return;
+      hadShoesPatch = true;
+      const hidden = new Set(
+        (patch.hidden || []).map((n) => String(n || '').trim().toLowerCase()).filter(Boolean)
+      );
+      (patch.extras || []).forEach((raw) => {
+        if (!hidden.has(String(raw || '').trim().toLowerCase())) addShoe(raw);
+      });
+      if (!alreadyMigrated) {
+        (LEGACY_CLOTHING_SHOES[gender] || []).forEach((name) => {
+          if (!hidden.has(name.toLowerCase())) addShoe(name);
+        });
+      }
+      delete catalog[gender].Shoes;
+    });
+
+    if (!alreadyMigrated && !hadShoesPatch) {
+      DEFAULT_ACCESSORIES.filter((item) => item.category === 'Shoes').forEach((item) => {
+        addShoe(item.name);
+      });
+    }
+
+    state.prefs.clothingCatalog = normalizeClothingCatalog(catalog);
+    if (!alreadyMigrated) {
+      state.prefs.accessoryCategories = ensureAccessoryCategory(
+        state.prefs.accessoryCategories,
+        'Shoes',
+        'Other'
+      );
+    }
+    state.prefs.migratedShoesToAccessories = true;
+    return true;
+  }
+
   function migrateState(parsed) {
     const defaults = emptyState();
-    return {
+    const state = {
       outfits: Array.isArray(parsed.outfits) ? parsed.outfits : [],
       staples: Array.isArray(parsed.staples) ? parsed.staples : defaults.staples,
-      accessories: Array.isArray(parsed.accessories) ? parsed.accessories : defaults.accessories,
+      accessories: Array.isArray(parsed.accessories) ? parsed.accessories.slice() : defaults.accessories,
       trips: Array.isArray(parsed.trips) ? parsed.trips.map(migrateTrip) : [],
       prefs: mergePrefs(parsed.prefs),
     };
+    migrateShoesToAccessories(state);
+    return state;
   }
 
   function load() {
@@ -163,7 +248,17 @@ const PackStore = (() => {
         save(state);
         return state;
       }
-      return migrateState(JSON.parse(raw));
+      const parsed = JSON.parse(raw);
+      const state = migrateState(parsed);
+      const hadClothingShoes =
+        parsed.prefs?.clothingCatalog?.women?.Shoes || parsed.prefs?.clothingCatalog?.men?.Shoes;
+      if (
+        !parsed.prefs?.migratedShoesToAccessories ||
+        hadClothingShoes
+      ) {
+        save(state);
+      }
+      return state;
     } catch {
       return emptyState();
     }
@@ -229,6 +324,15 @@ const PackStore = (() => {
     return out;
   }
 
+  function ensureAccessoryCategory(list, name, before) {
+    const cats = Array.isArray(list) ? list.slice() : [];
+    if (cats.some((c) => c.toLowerCase() === String(name).toLowerCase())) return cats;
+    const idx = before ? cats.findIndex((c) => c.toLowerCase() === String(before).toLowerCase()) : -1;
+    if (idx >= 0) cats.splice(idx, 0, name);
+    else cats.push(name);
+    return cats;
+  }
+
   function listStapleCategories() {
     const used = listStaples().map((s) => s.category);
     load().trips.forEach((trip) => {
@@ -257,7 +361,43 @@ const PackStore = (() => {
   }
 
   function emptyClothingPatch() {
-    return { extras: [], hidden: [] };
+    return { extras: [], hidden: [], order: [], extraSubs: {}, orderBySub: {}, photos: {} };
+  }
+
+  function normalizeSubMap(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const out = {};
+    Object.keys(raw).forEach((name) => {
+      const item = String(name || '').trim();
+      const sub = String(raw[name] || '').trim();
+      if (!item || !sub) return;
+      out[item] = sub;
+    });
+    return out;
+  }
+
+  function normalizeOrderBySub(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const out = {};
+    Object.keys(raw).forEach((sub) => {
+      const key = String(sub || '').trim();
+      if (!key) return;
+      const names = uniqueItemNames(raw[sub]);
+      if (names.length) out[key] = names;
+    });
+    return out;
+  }
+
+  function normalizePhotoMap(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const out = {};
+    Object.keys(raw).forEach((name) => {
+      const item = String(name || '').trim();
+      const id = String(raw[name] || '').trim();
+      if (!item || !id) return;
+      out[item] = id;
+    });
+    return out;
   }
 
   function normalizeClothingPatch(raw) {
@@ -265,7 +405,22 @@ const PackStore = (() => {
     return {
       extras: uniqueItemNames(raw.extras),
       hidden: uniqueItemNames(raw.hidden),
+      order: uniqueItemNames(raw.order),
+      extraSubs: normalizeSubMap(raw.extraSubs),
+      orderBySub: normalizeOrderBySub(raw.orderBySub),
+      photos: normalizePhotoMap(raw.photos),
     };
+  }
+
+  function clothingPatchIsEmpty(patch) {
+    return (
+      !patch.extras.length &&
+      !patch.hidden.length &&
+      !patch.order.length &&
+      !Object.keys(patch.extraSubs || {}).length &&
+      !Object.keys(patch.orderBySub || {}).length &&
+      !Object.keys(patch.photos || {}).length
+    );
   }
 
   function normalizeClothingCatalog(raw) {
@@ -275,7 +430,7 @@ const PackStore = (() => {
       const src = raw[gender] && typeof raw[gender] === 'object' ? raw[gender] : {};
       Object.keys(src).forEach((tab) => {
         const patch = normalizeClothingPatch(src[tab]);
-        if (patch.extras.length || patch.hidden.length) out[gender][tab] = patch;
+        if (!clothingPatchIsEmpty(patch)) out[gender][tab] = patch;
       });
     });
     return out;
@@ -295,7 +450,7 @@ const PackStore = (() => {
     const catalog = normalizeClothingCatalog(getPrefs().clothingCatalog);
     const next = normalizeClothingPatch(patch);
     if (!catalog[g]) catalog[g] = {};
-    if (!next.extras.length && !next.hidden.length) delete catalog[g][tab];
+    if (clothingPatchIsEmpty(next)) delete catalog[g][tab];
     else catalog[g][tab] = next;
     setPref('clothingCatalog', catalog);
     return next;
@@ -305,7 +460,133 @@ const PackStore = (() => {
     return ClothingCatalog.groupNamesFor(clothingGender(gender));
   }
 
-  function listClothingItems(gender, tab) {
+  function listClothingSubgroups(gender, tab) {
+    return ClothingCatalog.subgroupNamesFor(clothingGender(gender), tab);
+  }
+
+  function extraSubOf(patch, name) {
+    const key = normalizeName(name).toLowerCase();
+    if (!key) return null;
+    const hit = Object.entries(patch.extraSubs || {}).find(([n]) => n.toLowerCase() === key);
+    return hit ? hit[1] : null;
+  }
+
+  function setExtraSub(patch, name, sub) {
+    const next = {};
+    Object.entries(patch.extraSubs || {}).forEach(([n, s]) => {
+      if (n.toLowerCase() !== normalizeName(name).toLowerCase()) next[n] = s;
+    });
+    if (sub) next[normalizeName(name)] = sub;
+    patch.extraSubs = next;
+  }
+
+  function clothingPhotoOf(patch, name) {
+    const key = normalizeName(name).toLowerCase();
+    if (!key) return null;
+    const hit = Object.entries(patch.photos || {}).find(([n]) => n.toLowerCase() === key);
+    return hit ? hit[1] : null;
+  }
+
+  function dropClothingPhoto(patch, name) {
+    const key = normalizeName(name).toLowerCase();
+    if (!key) return;
+    const next = {};
+    Object.entries(patch.photos || {}).forEach(([n, id]) => {
+      if (n.toLowerCase() !== key) next[n] = id;
+    });
+    patch.photos = next;
+  }
+
+  function setClothingPhotoOnPatch(patch, name, photoId) {
+    dropClothingPhoto(patch, name);
+    const trimmed = normalizeName(name);
+    const id = String(photoId || '').trim();
+    if (!trimmed || !id) return;
+    patch.photos = { ...(patch.photos || {}), [trimmed]: id };
+  }
+
+  function clothingPhotoId(gender, tab, name) {
+    return clothingPhotoOf(getClothingPatch(gender, tab), name);
+  }
+
+  function setClothingPhoto(gender, tab, name, photoId) {
+    const g = clothingGender(gender);
+    const tabs = listClothingTabs(g);
+    if (!tabs.includes(tab)) return null;
+    const trimmed = normalizeName(name);
+    if (!trimmed) return null;
+    const patch = getClothingPatch(g, tab);
+    setClothingPhotoOnPatch(patch, trimmed, photoId);
+    setClothingPatch(g, tab, patch);
+    return clothingPhotoOf(patch, trimmed);
+  }
+
+  function findItemPhotoId(name) {
+    const key = normalizeName(name).toLowerCase();
+    if (!key) return null;
+    const accessory = listAccessories().find((a) => a.name.toLowerCase() === key);
+    if (accessory?.photoId) return accessory.photoId;
+    const staple = listStaples().find((s) => s.name.toLowerCase() === key);
+    if (staple?.photoId) return staple.photoId;
+    const preferred = clothingGender(getPrefs().clothingGender);
+    const genders = preferred === 'men' ? ['men', 'women'] : ['women', 'men'];
+    for (const g of genders) {
+      for (const tab of listClothingTabs(g)) {
+        const id = clothingPhotoId(g, tab, name);
+        if (id) return id;
+      }
+    }
+    return null;
+  }
+
+  function guessSubgroup(name, subs) {
+    if (!subs.length) return null;
+    const n = String(name || '').toLowerCase();
+    const rules = [
+      ['Coats', /(coat|trench|puffer|parka|peacoat|overcoat|raincoat)/],
+      ['Jackets', /(jacket|blazer|windbreaker|overshirt|shacket|bomber|vest|anorak)/],
+      ['Sweaters', /(sweater|cardigan|hoodie|fleece|turtleneck|crewneck|knit|\bzip\b)/],
+    ];
+    for (const [sub, re] of rules) {
+      if (subs.includes(sub) && re.test(n)) return sub;
+    }
+    return subs[0];
+  }
+
+  function resolveSubgroup(gender, tab, name, patch, preferred) {
+    const g = clothingGender(gender);
+    const subs = listClothingSubgroups(g, tab);
+    if (!subs.length) return null;
+    if (preferred && subs.includes(preferred)) return preferred;
+    const extra = extraSubOf(patch, name);
+    if (extra && subs.includes(extra)) return extra;
+    const fromCatalog = ClothingCatalog.defaultSubgroup(g, tab, name);
+    if (fromCatalog) return fromCatalog;
+    return guessSubgroup(name, subs);
+  }
+
+  function applyNamedOrder(merged, extras, order) {
+    if (!order || !order.length) return merged;
+    const byKey = new Map(merged.map((name) => [name.toLowerCase(), name]));
+    const seen = new Set();
+    const ordered = [];
+    order.forEach((name) => {
+      const key = name.toLowerCase();
+      const match = byKey.get(key);
+      if (!match || seen.has(key)) return;
+      seen.add(key);
+      ordered.push(match);
+    });
+    const leftoverExtras = extras.filter((name) => !seen.has(name.toLowerCase()));
+    const leftoverRest = merged.filter(
+      (name) =>
+        !seen.has(name.toLowerCase()) &&
+        !leftoverExtras.some((extra) => extra.toLowerCase() === name.toLowerCase())
+    );
+    return [...leftoverExtras, ...ordered, ...leftoverRest];
+  }
+
+  function visibleExtrasAndDefaults(gender, tab) {
     const g = clothingGender(gender);
     const defaults = ClothingCatalog.pillsFor(g, tab) || [];
     const patch = getClothingPatch(g, tab);
@@ -321,7 +602,39 @@ const PackStore = (() => {
     const kept = defaults.filter(
       (name) => !hidden.has(name.toLowerCase()) && !extraKeys.has(name.toLowerCase())
     );
-    return [...extras, ...kept];
+    return { g, patch, extras, kept };
+  }
+
+  function listClothingSections(gender, tab) {
+    const { g, patch, extras, kept } = visibleExtrasAndDefaults(gender, tab);
+    const subs = listClothingSubgroups(g, tab);
+    if (!subs.length) {
+      const merged = [...extras, ...kept];
+      return [{ id: '', label: null, items: applyNamedOrder(merged, extras, patch.order) }];
+    }
+
+    return subs.map((sub) => {
+      const extraHere = extras.filter((name) => resolveSubgroup(g, tab, name, patch) === sub);
+      const keptHere = kept.filter((name) => resolveSubgroup(g, tab, name, patch) === sub);
+      const merged = [...extraHere, ...keptHere];
+      const subOrder = patch.orderBySub[sub];
+      const order = subOrder && subOrder.length ? subOrder : patch.order;
+      return {
+        id: sub,
+        label: sub,
+        items: applyNamedOrder(merged, extraHere, order),
+      };
+    });
+  }
+
+  function listClothingItems(gender, tab) {
+    return listClothingSections(gender, tab).flatMap((section) => section.items);
+  }
+
+  function clothingSubgroup(gender, tab, name) {
+    const g = clothingGender(gender);
+    const patch = getClothingPatch(g, tab);
+    return resolveSubgroup(g, tab, name, patch);
   }
 
   function clothingGroupsFor(gender) {
@@ -334,7 +647,12 @@ const PackStore = (() => {
   }
 
   function searchClothing(gender, query) {
-    return ClothingCatalog.searchAll(clothingGender(gender), query, clothingGroupsFor(gender));
+    const g = clothingGender(gender);
+    const hits = ClothingCatalog.searchAll(g, query, clothingGroupsFor(g));
+    return hits.map((hit) => ({
+      ...hit,
+      sub: hit.sub || clothingSubgroup(g, hit.group, hit.name),
+    }));
   }
 
   function isCustomClothingItem(gender, tab, name) {
@@ -343,7 +661,38 @@ const PackStore = (() => {
     return getClothingPatch(gender, tab).extras.some((n) => n.toLowerCase() === key);
   }
 
-  function addClothingItem(gender, tab, name) {
+  function prependClothingOrder(patch, name) {
+    if (!patch.order.length) return;
+    const key = normalizeName(name).toLowerCase();
+    if (!key) return;
+    patch.order = [name, ...patch.order.filter((n) => n.toLowerCase() !== key)];
+  }
+
+  function prependClothingOrderBySub(patch, sub, name) {
+    if (!sub) return;
+    const current = patch.orderBySub[sub] || [];
+    if (!current.length) return;
+    const key = normalizeName(name).toLowerCase();
+    if (!key) return;
+    patch.orderBySub = {
+      ...patch.orderBySub,
+      [sub]: [name, ...current.filter((n) => n.toLowerCase() !== key)],
+    };
+  }
+
+  function dropFromClothingOrder(patch, name) {
+    const key = normalizeName(name).toLowerCase();
+    if (!key) return;
+    patch.order = patch.order.filter((n) => n.toLowerCase() !== key);
+    const next = {};
+    Object.keys(patch.orderBySub || {}).forEach((sub) => {
+      const names = (patch.orderBySub[sub] || []).filter((n) => n.toLowerCase() !== key);
+      if (names.length) next[sub] = names;
+    });
+    patch.orderBySub = next;
+  }
+
+  function addClothingItem(gender, tab, name, sub) {
     const g = clothingGender(gender);
     const tabs = listClothingTabs(g);
     if (!tabs.includes(tab)) return { action: 'invalid' };
@@ -355,18 +704,25 @@ const PackStore = (() => {
     }
     const patch = getClothingPatch(g, tab);
     const hiddenIdx = patch.hidden.findIndex((n) => n.toLowerCase() === trimmed.toLowerCase());
+    const assigned = resolveSubgroup(g, tab, trimmed, patch, sub);
     if (hiddenIdx >= 0) {
       patch.hidden.splice(hiddenIdx, 1);
       const defaults = ClothingCatalog.pillsFor(g, tab) || [];
       if (!defaults.some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
-        patch.extras.push(trimmed);
+        patch.extras.unshift(trimmed);
+        if (assigned) setExtraSub(patch, trimmed, assigned);
       }
+      prependClothingOrder(patch, trimmed);
+      prependClothingOrderBySub(patch, assigned, trimmed);
       setClothingPatch(g, tab, patch);
-      return { action: 'restored', name: trimmed };
+      return { action: 'restored', name: trimmed, sub: assigned };
     }
-    patch.extras.push(trimmed);
+    patch.extras.unshift(trimmed);
+    if (assigned) setExtraSub(patch, trimmed, assigned);
+    prependClothingOrder(patch, trimmed);
+    prependClothingOrderBySub(patch, assigned, trimmed);
     setClothingPatch(g, tab, patch);
-    return { action: 'added', name: trimmed };
+    return { action: 'added', name: trimmed, sub: assigned };
   }
 
   function removeClothingItem(gender, tab, name) {
@@ -376,22 +732,28 @@ const PackStore = (() => {
     const patch = getClothingPatch(g, tab);
     const extraIdx = patch.extras.findIndex((n) => n.toLowerCase() === trimmed.toLowerCase());
     if (extraIdx >= 0) {
+      const photoId = clothingPhotoOf(patch, trimmed);
       patch.extras.splice(extraIdx, 1);
+      setExtraSub(patch, trimmed, null);
+      dropFromClothingOrder(patch, trimmed);
+      dropClothingPhoto(patch, trimmed);
       setClothingPatch(g, tab, patch);
-      return { action: 'removed', name: trimmed };
+      return { action: 'removed', name: trimmed, photoId };
     }
     const defaults = ClothingCatalog.pillsFor(g, tab) || [];
     if (defaults.some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
       if (!patch.hidden.some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
         patch.hidden.push(trimmed);
       }
+      setExtraSub(patch, trimmed, null);
+      dropFromClothingOrder(patch, trimmed);
       setClothingPatch(g, tab, patch);
       return { action: 'hidden', name: trimmed };
     }
     return { action: 'missing', name: trimmed };
   }
 
-  function renameClothingItem(gender, fromTab, oldName, newName, toTab) {
+  function renameClothingItem(gender, fromTab, oldName, newName, toTab, sub) {
     const g = clothingGender(gender);
     const destTab = toTab || fromTab;
     const tabs = listClothingTabs(g);
@@ -400,7 +762,22 @@ const PackStore = (() => {
     if (!trimmed) return { action: 'empty' };
     const sameSlot =
       fromTab === destTab && normalizeName(oldName).toLowerCase() === trimmed.toLowerCase();
-    if (sameSlot) return { action: 'unchanged', name: trimmed };
+    const destSub = resolveSubgroup(
+      g,
+      destTab,
+      trimmed,
+      getClothingPatch(g, destTab),
+      sub || (fromTab === destTab ? clothingSubgroup(g, fromTab, oldName) : null)
+    );
+    if (sameSlot && destSub === clothingSubgroup(g, fromTab, oldName)) {
+      return { action: 'unchanged', name: trimmed, tab: destTab, sub: destSub };
+    }
+    if (sameSlot) {
+      const patch = getClothingPatch(g, fromTab);
+      if (destSub) setExtraSub(patch, oldName, destSub);
+      setClothingPatch(g, fromTab, patch);
+      return { action: 'moved', name: trimmed, tab: destTab, sub: destSub };
+    }
 
     const destItems = listClothingItems(g, destTab);
     const clash = destItems.some(
@@ -410,10 +787,67 @@ const PackStore = (() => {
     );
     if (clash) return { action: 'exists', name: trimmed };
 
+    const oldKey = normalizeName(oldName).toLowerCase();
+    const fromPatch = getClothingPatch(g, fromTab);
+    const photoId = clothingPhotoOf(fromPatch, oldName);
+    const orderIdx =
+      fromTab === destTab
+        ? fromPatch.order.findIndex((n) => n.toLowerCase() === oldKey)
+        : -1;
+
+    if (photoId) {
+      dropClothingPhoto(fromPatch, oldName);
+      setClothingPatch(g, fromTab, fromPatch);
+    }
+
     removeClothingItem(g, fromTab, oldName);
-    const added = addClothingItem(g, destTab, trimmed);
-    if (added.action === 'exists') return added;
-    return { action: 'renamed', name: trimmed, tab: destTab };
+    const added = addClothingItem(g, destTab, trimmed, destSub);
+    if (added.action === 'exists') {
+      if (photoId) setClothingPhoto(g, fromTab, oldName, photoId);
+      return added;
+    }
+    if (fromTab === destTab) {
+      const patch = getClothingPatch(g, destTab);
+      if (orderIdx >= 0 && patch.order.length) {
+        dropFromClothingOrder(patch, trimmed);
+        patch.order.splice(Math.min(orderIdx, patch.order.length), 0, trimmed);
+        if (destSub) setExtraSub(patch, trimmed, destSub);
+        setClothingPatch(g, destTab, patch);
+      }
+    }
+    if (photoId) setClothingPhoto(g, destTab, trimmed, photoId);
+    return { action: 'renamed', name: trimmed, tab: destTab, sub: destSub, photoId };
+  }
+
+  function reorderClothingItems(gender, tab, names, sub) {
+    const g = clothingGender(gender);
+    const tabs = listClothingTabs(g);
+    if (!tabs.includes(tab)) return listClothingItems(g, tab);
+    const sections = listClothingSections(g, tab);
+    const patch = getClothingPatch(g, tab);
+
+    if (sub && sections.some((section) => section.id === sub)) {
+      const section = sections.find((s) => s.id === sub);
+      const visibleKeys = new Set(section.items.map((n) => n.toLowerCase()));
+      const ordered = uniqueItemNames(names).filter((n) => visibleKeys.has(n.toLowerCase()));
+      section.items.forEach((name) => {
+        if (!ordered.some((n) => n.toLowerCase() === name.toLowerCase())) ordered.push(name);
+      });
+      patch.orderBySub = { ...patch.orderBySub, [sub]: ordered };
+      patch.order = sections.flatMap((s) => (s.id === sub ? ordered : s.items));
+      setClothingPatch(g, tab, patch);
+      return listClothingItems(g, tab);
+    }
+
+    const visible = listClothingItems(g, tab);
+    const visibleKeys = new Set(visible.map((n) => n.toLowerCase()));
+    const ordered = uniqueItemNames(names).filter((n) => visibleKeys.has(n.toLowerCase()));
+    visible.forEach((name) => {
+      if (!ordered.some((n) => n.toLowerCase() === name.toLowerCase())) ordered.push(name);
+    });
+    patch.order = ordered;
+    setClothingPatch(g, tab, patch);
+    return listClothingItems(g, tab);
   }
 
   function restoreClothingDefaults() {
@@ -422,8 +856,15 @@ const PackStore = (() => {
     ['women', 'men'].forEach((g) => {
       Object.keys(catalog[g] || {}).forEach((tab) => {
         restored += (catalog[g][tab].hidden || []).length;
-        catalog[g][tab] = { extras: catalog[g][tab].extras || [], hidden: [] };
-        if (!catalog[g][tab].extras.length) delete catalog[g][tab];
+        catalog[g][tab] = {
+          extras: catalog[g][tab].extras || [],
+          hidden: [],
+          order: catalog[g][tab].order || [],
+          extraSubs: catalog[g][tab].extraSubs || {},
+          orderBySub: catalog[g][tab].orderBySub || {},
+          photos: catalog[g][tab].photos || {},
+        };
+        if (clothingPatchIsEmpty(catalog[g][tab])) delete catalog[g][tab];
       });
     });
     setPref('clothingCatalog', catalog);
@@ -590,25 +1031,48 @@ const PackStore = (() => {
     return load().staples.slice();
   }
 
-  function addStaple({ name, category }) {
+  function addStaple({ name, category, photoId }) {
     const id = uid();
     update((state) => {
       state.staples.push({
         id,
         name: (name || '').trim(),
         category: (category || 'Other').trim() || 'Other',
+        photoId: photoId || null,
       });
     });
     return listStaples().find((s) => s.id === id);
   }
 
+  function updateStaple(id, patch) {
+    update((state) => {
+      const idx = state.staples.findIndex((s) => s.id === id);
+      if (idx < 0) return;
+      const cur = state.staples[idx];
+      const name = patch.name != null ? normalizeName(patch.name) : cur.name;
+      if (!name) return;
+      state.staples[idx] = {
+        ...cur,
+        name,
+        category:
+          patch.category != null
+            ? String(patch.category).trim() || 'Other'
+            : cur.category,
+        photoId: patch.photoId !== undefined ? patch.photoId || null : cur.photoId || null,
+      };
+    });
+    return listStaples().find((s) => s.id === id) || null;
+  }
+
   function deleteStaple(id) {
+    const staple = listStaples().find((s) => s.id === id) || null;
     update((state) => {
       state.staples = state.staples.filter((s) => s.id !== id);
       state.trips.forEach((trip) => {
         trip.excludedStapleIds = (trip.excludedStapleIds || []).filter((sid) => sid !== id);
       });
     });
+    return staple;
   }
 
   function reorderStaples(ids) {
@@ -625,7 +1089,7 @@ const PackStore = (() => {
     return load().accessories.slice();
   }
 
-  function addAccessory({ name, category }) {
+  function addAccessory({ name, category, photoId }) {
     const trimmed = normalizeName(name);
     if (!trimmed) return null;
     const existing = listAccessories().find(
@@ -638,6 +1102,7 @@ const PackStore = (() => {
         id,
         name: trimmed,
         category: (category || 'Other').trim() || 'Other',
+        photoId: photoId || null,
       });
     });
     return listAccessories().find((a) => a.id === id);
@@ -661,15 +1126,18 @@ const PackStore = (() => {
           patch.category != null
             ? String(patch.category).trim() || 'Other'
             : cur.category,
+        photoId: patch.photoId !== undefined ? patch.photoId || null : cur.photoId || null,
       };
     });
     return listAccessories().find((a) => a.id === id) || null;
   }
 
   function deleteAccessory(id) {
+    const accessory = listAccessories().find((a) => a.id === id) || null;
     update((state) => {
       state.accessories = state.accessories.filter((a) => a.id !== id);
     });
+    return accessory;
   }
 
   // ——— Trips ———
@@ -960,7 +1428,13 @@ const PackStore = (() => {
         const items = (outfit.items || []).map((name) => {
           const key = itemKey(name);
           const entry = remember(key, name, 'clothing');
-          return { key, name, packed: entry.packed, source: outfit.name };
+          return {
+            key,
+            name,
+            packed: entry.packed,
+            source: outfit.name,
+            photoId: findItemPhotoId(name),
+          };
         });
         const packedCount = keys.filter((key) => packed[key]).length;
         return {
@@ -979,7 +1453,13 @@ const PackStore = (() => {
       const extras = (day.items || []).map((item) => {
         const key = itemKey(item.name);
         const entry = remember(key, item.name, 'day');
-        return { id: item.id, key, name: item.name, packed: entry.packed };
+        return {
+          id: item.id,
+          key,
+          name: item.name,
+          packed: entry.packed,
+          photoId: findItemPhotoId(item.name),
+        };
       });
 
       return {
@@ -1005,6 +1485,7 @@ const PackStore = (() => {
         type: 'staple',
         category: cat,
         packed: !!packed[key],
+        photoId: staple.photoId || findItemPhotoId(staple.name),
       });
     }
 
@@ -1070,13 +1551,20 @@ const PackStore = (() => {
     listStapleCategories,
     listAccessoryCategories,
     listClothingTabs,
+    listClothingSubgroups,
     listClothingItems,
+    listClothingSections,
+    clothingSubgroup,
+    clothingPhotoId,
+    setClothingPhoto,
+    findItemPhotoId,
     clothingGroupsFor,
     searchClothing,
     isCustomClothingItem,
     addClothingItem,
     removeClothingItem,
     renameClothingItem,
+    reorderClothingItems,
     restoreClothingDefaults,
     clothingCatalogSummary,
     restoreMissingDefaults,
@@ -1094,6 +1582,7 @@ const PackStore = (() => {
     deleteOutfit,
     listStaples,
     addStaple,
+    updateStaple,
     deleteStaple,
     reorderStaples,
     listAccessories,
