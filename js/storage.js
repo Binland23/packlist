@@ -55,6 +55,7 @@ const PackStore = (() => {
     hiddenHints: {},
     stapleCategories: STAPLE_CAT_ORDER.slice(),
     accessoryCategories: ACCESSORY_CAT_ORDER.slice(),
+    clothingCatalog: { women: {}, men: {} },
   };
 
   function mergePrefs(raw) {
@@ -66,6 +67,7 @@ const PackStore = (() => {
     const accessoryCategories = Array.isArray(p.accessoryCategories) && p.accessoryCategories.length
       ? p.accessoryCategories.map((c) => String(c).trim()).filter(Boolean)
       : ACCESSORY_CAT_ORDER.slice();
+    const clothingCatalog = normalizeClothingCatalog(p.clothingCatalog);
     const days = Math.max(1, Math.min(30, Number(p.defaultTripDays) || 3));
     return {
       ...DEFAULT_PREFS,
@@ -85,6 +87,7 @@ const PackStore = (() => {
       hiddenHints,
       stapleCategories,
       accessoryCategories,
+      clothingCatalog,
     };
   }
 
@@ -106,7 +109,13 @@ const PackStore = (() => {
         category: s.category,
       })),
       trips: [],
-      prefs: { ...DEFAULT_PREFS, hiddenHints: {}, stapleCategories: STAPLE_CAT_ORDER.slice(), accessoryCategories: ACCESSORY_CAT_ORDER.slice() },
+      prefs: {
+        ...DEFAULT_PREFS,
+        hiddenHints: {},
+        stapleCategories: STAPLE_CAT_ORDER.slice(),
+        accessoryCategories: ACCESSORY_CAT_ORDER.slice(),
+        clothingCatalog: { women: {}, men: {} },
+      },
     };
   }
 
@@ -231,6 +240,207 @@ const PackStore = (() => {
   function listAccessoryCategories() {
     const used = listAccessories().map((a) => a.category);
     return uniqueCats(getPrefs().accessoryCategories, used);
+  }
+
+  function uniqueItemNames(list) {
+    const seen = new Set();
+    const out = [];
+    (list || []).forEach((raw) => {
+      const name = String(raw || '').trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(name);
+    });
+    return out;
+  }
+
+  function emptyClothingPatch() {
+    return { extras: [], hidden: [] };
+  }
+
+  function normalizeClothingPatch(raw) {
+    if (!raw || typeof raw !== 'object') return emptyClothingPatch();
+    return {
+      extras: uniqueItemNames(raw.extras),
+      hidden: uniqueItemNames(raw.hidden),
+    };
+  }
+
+  function normalizeClothingCatalog(raw) {
+    const out = { women: {}, men: {} };
+    if (!raw || typeof raw !== 'object') return out;
+    ['women', 'men'].forEach((gender) => {
+      const src = raw[gender] && typeof raw[gender] === 'object' ? raw[gender] : {};
+      Object.keys(src).forEach((tab) => {
+        const patch = normalizeClothingPatch(src[tab]);
+        if (patch.extras.length || patch.hidden.length) out[gender][tab] = patch;
+      });
+    });
+    return out;
+  }
+
+  function clothingGender(value) {
+    return value === 'men' ? 'men' : 'women';
+  }
+
+  function getClothingPatch(gender, tab) {
+    const catalog = getPrefs().clothingCatalog || { women: {}, men: {} };
+    return normalizeClothingPatch(catalog[clothingGender(gender)]?.[tab]);
+  }
+
+  function setClothingPatch(gender, tab, patch) {
+    const g = clothingGender(gender);
+    const catalog = normalizeClothingCatalog(getPrefs().clothingCatalog);
+    const next = normalizeClothingPatch(patch);
+    if (!catalog[g]) catalog[g] = {};
+    if (!next.extras.length && !next.hidden.length) delete catalog[g][tab];
+    else catalog[g][tab] = next;
+    setPref('clothingCatalog', catalog);
+    return next;
+  }
+
+  function listClothingTabs(gender) {
+    return ClothingCatalog.groupNamesFor(clothingGender(gender));
+  }
+
+  function listClothingItems(gender, tab) {
+    const g = clothingGender(gender);
+    const defaults = ClothingCatalog.pillsFor(g, tab) || [];
+    const patch = getClothingPatch(g, tab);
+    const hidden = new Set(patch.hidden.map((n) => n.toLowerCase()));
+    const extras = [];
+    const extraKeys = new Set();
+    patch.extras.forEach((name) => {
+      const key = name.toLowerCase();
+      if (hidden.has(key) || extraKeys.has(key)) return;
+      extraKeys.add(key);
+      extras.push(name);
+    });
+    const kept = defaults.filter(
+      (name) => !hidden.has(name.toLowerCase()) && !extraKeys.has(name.toLowerCase())
+    );
+    return [...extras, ...kept];
+  }
+
+  function clothingGroupsFor(gender) {
+    const g = clothingGender(gender);
+    const groups = {};
+    listClothingTabs(g).forEach((tab) => {
+      groups[tab] = listClothingItems(g, tab);
+    });
+    return groups;
+  }
+
+  function searchClothing(gender, query) {
+    return ClothingCatalog.searchAll(clothingGender(gender), query, clothingGroupsFor(gender));
+  }
+
+  function isCustomClothingItem(gender, tab, name) {
+    const key = normalizeName(name).toLowerCase();
+    if (!key) return false;
+    return getClothingPatch(gender, tab).extras.some((n) => n.toLowerCase() === key);
+  }
+
+  function addClothingItem(gender, tab, name) {
+    const g = clothingGender(gender);
+    const tabs = listClothingTabs(g);
+    if (!tabs.includes(tab)) return { action: 'invalid' };
+    const trimmed = normalizeName(name);
+    if (!trimmed) return { action: 'empty' };
+    const current = listClothingItems(g, tab);
+    if (current.some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
+      return { action: 'exists', name: trimmed };
+    }
+    const patch = getClothingPatch(g, tab);
+    const hiddenIdx = patch.hidden.findIndex((n) => n.toLowerCase() === trimmed.toLowerCase());
+    if (hiddenIdx >= 0) {
+      patch.hidden.splice(hiddenIdx, 1);
+      const defaults = ClothingCatalog.pillsFor(g, tab) || [];
+      if (!defaults.some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
+        patch.extras.push(trimmed);
+      }
+      setClothingPatch(g, tab, patch);
+      return { action: 'restored', name: trimmed };
+    }
+    patch.extras.push(trimmed);
+    setClothingPatch(g, tab, patch);
+    return { action: 'added', name: trimmed };
+  }
+
+  function removeClothingItem(gender, tab, name) {
+    const g = clothingGender(gender);
+    const trimmed = normalizeName(name);
+    if (!trimmed) return { action: 'empty' };
+    const patch = getClothingPatch(g, tab);
+    const extraIdx = patch.extras.findIndex((n) => n.toLowerCase() === trimmed.toLowerCase());
+    if (extraIdx >= 0) {
+      patch.extras.splice(extraIdx, 1);
+      setClothingPatch(g, tab, patch);
+      return { action: 'removed', name: trimmed };
+    }
+    const defaults = ClothingCatalog.pillsFor(g, tab) || [];
+    if (defaults.some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
+      if (!patch.hidden.some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
+        patch.hidden.push(trimmed);
+      }
+      setClothingPatch(g, tab, patch);
+      return { action: 'hidden', name: trimmed };
+    }
+    return { action: 'missing', name: trimmed };
+  }
+
+  function renameClothingItem(gender, fromTab, oldName, newName, toTab) {
+    const g = clothingGender(gender);
+    const destTab = toTab || fromTab;
+    const tabs = listClothingTabs(g);
+    if (!tabs.includes(fromTab) || !tabs.includes(destTab)) return { action: 'invalid' };
+    const trimmed = normalizeName(newName);
+    if (!trimmed) return { action: 'empty' };
+    const sameSlot =
+      fromTab === destTab && normalizeName(oldName).toLowerCase() === trimmed.toLowerCase();
+    if (sameSlot) return { action: 'unchanged', name: trimmed };
+
+    const destItems = listClothingItems(g, destTab);
+    const clash = destItems.some(
+      (n) =>
+        n.toLowerCase() === trimmed.toLowerCase() &&
+        n.toLowerCase() !== normalizeName(oldName).toLowerCase()
+    );
+    if (clash) return { action: 'exists', name: trimmed };
+
+    removeClothingItem(g, fromTab, oldName);
+    const added = addClothingItem(g, destTab, trimmed);
+    if (added.action === 'exists') return added;
+    return { action: 'renamed', name: trimmed, tab: destTab };
+  }
+
+  function restoreClothingDefaults() {
+    const catalog = normalizeClothingCatalog(getPrefs().clothingCatalog);
+    let restored = 0;
+    ['women', 'men'].forEach((g) => {
+      Object.keys(catalog[g] || {}).forEach((tab) => {
+        restored += (catalog[g][tab].hidden || []).length;
+        catalog[g][tab] = { extras: catalog[g][tab].extras || [], hidden: [] };
+        if (!catalog[g][tab].extras.length) delete catalog[g][tab];
+      });
+    });
+    setPref('clothingCatalog', catalog);
+    return restored;
+  }
+
+  function clothingCatalogSummary() {
+    const catalog = normalizeClothingCatalog(getPrefs().clothingCatalog);
+    let extras = 0;
+    let hidden = 0;
+    ['women', 'men'].forEach((g) => {
+      Object.values(catalog[g] || {}).forEach((patch) => {
+        extras += (patch.extras || []).length;
+        hidden += (patch.hidden || []).length;
+      });
+    });
+    return { extras, hidden };
   }
 
   function restoreMissingDefaults(kind) {
@@ -785,6 +995,16 @@ const PackStore = (() => {
     resetHints,
     listStapleCategories,
     listAccessoryCategories,
+    listClothingTabs,
+    listClothingItems,
+    clothingGroupsFor,
+    searchClothing,
+    isCustomClothingItem,
+    addClothingItem,
+    removeClothingItem,
+    renameClothingItem,
+    restoreClothingDefaults,
+    clothingCatalogSummary,
     restoreMissingDefaults,
     exportBackup,
     importBackup,

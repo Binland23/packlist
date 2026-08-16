@@ -144,8 +144,12 @@ const ClothingCatalog = (() => {
     return gender === 'men' ? MEN : WOMEN;
   }
 
+  function groupNamesFor(gender) {
+    return Object.keys(groupsFor(gender));
+  }
+
   function tabsFor(gender) {
-    return [...Object.keys(groupsFor(gender)), 'Accessories'];
+    return [...groupNamesFor(gender), 'Accessories'];
   }
 
   function pillsFor(gender, tab) {
@@ -154,13 +158,13 @@ const ClothingCatalog = (() => {
     return groups[tab] || [];
   }
 
-  function searchAll(gender, query) {
+  function searchAll(gender, query, clothingGroups) {
     const q = query.trim().toLowerCase();
     if (!q) return [];
     const hits = [];
-    const groups = groupsFor(gender);
+    const groups = clothingGroups && typeof clothingGroups === 'object' ? clothingGroups : groupsFor(gender);
     Object.entries(groups).forEach(([group, items]) => {
-      items.forEach((name) => {
+      (items || []).forEach((name) => {
         if (name.toLowerCase().includes(q)) hits.push({ name, group });
       });
     });
@@ -174,6 +178,7 @@ const ClothingCatalog = (() => {
 
   return {
     groupsFor,
+    groupNamesFor,
     tabsFor,
     pillsFor,
     searchAll,
