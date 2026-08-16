@@ -920,6 +920,50 @@ html[data-density="compact"] .item-thumb {
   transform: scale(0.9);
 }
 
+.pack-check-row {
+  display: flex;
+  align-items: stretch;
+  border-top: 1px solid var(--border);
+}
+
+.check-group-label + .pack-check-row {
+  border-top: none;
+}
+
+.pack-check-row .check-item {
+  border-top: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.pack-remove-staple {
+  width: 48px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-faint);
+  border-left: 1px solid var(--border);
+}
+
+.pack-remove-staple:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.pack-check-row:has(.check-item.done) {
+  background: color-mix(in srgb, var(--sage-soft) 40%, var(--surface));
+}
+
+.pack-check-row:has(.check-item.done) .check-item.done {
+  background: transparent;
+}
+
+.pack-restore-staples {
+  margin-top: 12px;
+  padding: 0 4px 4px;
+}
+
 .check-label {
   flex: 1;
   font-size: 15px;
