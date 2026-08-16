@@ -930,6 +930,28 @@ const PackStore = (() => {
     return `item:${normalizeName(name).toLowerCase()}`;
   }
 
+  function outfitKey(outfitId) {
+    return `outfit:${outfitId}`;
+  }
+
+  function uniqueKeys(keys) {
+    const seen = new Set();
+    const out = [];
+    (keys || []).forEach((key) => {
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      out.push(key);
+    });
+    return out;
+  }
+
+  function outfitPackKeys(outfit) {
+    if (!outfit) return [];
+    const names = (outfit.items || []).map((n) => normalizeName(n)).filter(Boolean);
+    if (!names.length) return [outfitKey(outfit.id)];
+    return uniqueKeys(names.map((n) => itemKey(n)));
+  }
+
   // ——— Outfits ———
   function listOutfits() {
     return load().outfits.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -1324,13 +1346,23 @@ const PackStore = (() => {
     return excludeStapleFromTrip(tripId, stapleId);
   }
 
-  function setPacked(tripId, packedKey, packed) {
+  function setPackedKeys(tripId, keys, packed) {
     const trip = getTrip(tripId);
     if (!trip) return null;
     const next = { ...(trip.packed || {}) };
-    if (packed) next[packedKey] = true;
-    else delete next[packedKey];
+    uniqueKeys(keys).forEach((key) => {
+      if (packed) next[key] = true;
+      else delete next[key];
+    });
     return updateTrip(tripId, { packed: next });
+  }
+
+  function setPacked(tripId, packedKey, packed) {
+    return setPackedKeys(tripId, [packedKey], packed);
+  }
+
+  function setOutfitPacked(tripId, outfitId, packed) {
+    return setPackedKeys(tripId, outfitPackKeys(getOutfit(outfitId)), packed);
   }
 
   function sortCategories(cats, order) {
@@ -1346,8 +1378,9 @@ const PackStore = (() => {
 
   /**
    * Build packing list for a trip.
-   * Outfit + day items expand per day (repeats shown again).
-   * Packed state is shared by item name across every day it appears.
+   * Outfits expand into individual pieces per day (repeats shown again).
+   * Packed state is shared by item name — and by outfit id when a look has
+   * no listed pieces — so checking a repeated outfit on day 1 checks it later.
    * Staples are this trip's list (global minus removals, plus extras).
    */
   function buildPackingList(tripId) {
@@ -1358,6 +1391,7 @@ const PackStore = (() => {
     const outfitMap = new Map(state.outfits.map((o) => [o.id, o]));
     const packed = trip.packed || {};
     const unique = new Map();
+    const outfitFirstDay = new Map();
 
     function remember(key, name, type) {
       if (!unique.has(key)) {
@@ -1368,9 +1402,28 @@ const PackStore = (() => {
 
     const dayGroups = (trip.days || []).map((day) => {
       const outfits = (day.outfitIds || []).map((oid) => {
+        const firstDayLabel = outfitFirstDay.get(oid) || null;
+        const isRepeat = outfitFirstDay.has(oid);
+        if (!isRepeat) outfitFirstDay.set(oid, day.label);
+
         const outfit = outfitMap.get(oid);
         if (!outfit) {
-          return { id: oid, name: 'Missing outfit', missing: true, items: [] };
+          return {
+            id: oid,
+            name: 'Missing outfit',
+            missing: true,
+            items: [],
+            keys: [],
+            packed: false,
+            packedCount: 0,
+            repeat: isRepeat,
+            firstDayLabel,
+          };
+        }
+
+        const keys = outfitPackKeys(outfit);
+        if (!(outfit.items || []).length) {
+          keys.forEach((key) => remember(key, outfit.name, 'outfit'));
         }
         const items = (outfit.items || []).map((name) => {
           const key = itemKey(name);
@@ -1383,7 +1436,18 @@ const PackStore = (() => {
             photoId: findItemPhotoId(name),
           };
         });
-        return { id: outfit.id, name: outfit.name, missing: false, items };
+        const packedCount = keys.filter((key) => packed[key]).length;
+        return {
+          id: outfit.id,
+          name: outfit.name,
+          missing: false,
+          items,
+          keys,
+          packed: keys.length > 0 && packedCount === keys.length,
+          packedCount,
+          repeat: isRepeat,
+          firstDayLabel,
+        };
       });
 
       const extras = (day.items || []).map((item) => {
@@ -1439,7 +1503,17 @@ const PackStore = (() => {
     // Flat groups kept for older callers / trip cards
     const clothingFromDays = [];
     dayGroups.forEach((day) => {
-      day.outfits.forEach((outfit) => clothingFromDays.push(...outfit.items));
+      day.outfits.forEach((outfit) => {
+        if (outfit.items.length) clothingFromDays.push(...outfit.items);
+        else if (!outfit.missing && outfit.keys?.length) {
+          clothingFromDays.push({
+            key: outfit.keys[0],
+            name: outfit.name,
+            packed: outfit.packed,
+            source: outfit.name,
+          });
+        }
+      });
       clothingFromDays.push(...day.extras);
     });
     const groups = [];
@@ -1499,6 +1573,8 @@ const PackStore = (() => {
     clearAllPacked,
     resetAllData,
     itemKey,
+    outfitKey,
+    outfitPackKeys,
     listOutfits,
     getOutfit,
     createOutfit,
@@ -1529,6 +1605,8 @@ const PackStore = (() => {
     addTripStaple,
     removeTripStaple,
     setPacked,
+    setPackedKeys,
+    setOutfitPacked,
     buildPackingList,
     STAPLE_CAT_ORDER,
     ACCESSORY_CAT_ORDER,

@@ -12,7 +12,7 @@ Built as an installable **Progressive Web App** for iPhone (and any modern brows
 - **Categories** — pick Tops, Layers (Sweaters, Jackets, Coats), Bottoms, Dresses / Suits instead of typing every piece; drag to reorder each list
 - **Staples** — toiletries, basics, tech, documents start on every trip; remove or add extras **for that trip only**
 - **Trips** — multi-day plans with multiple outfits **and extra items** per day
-- **Packing checklist** — outfits expand to individual pieces; repeats show on later days but check off once everywhere
+- **Packing checklist** — outfits expand to individual pieces; tap a look to pack every piece; repeats show on later days but check off once everywhere
 - **Offline / home screen** — works as a standalone app once installed
 - **Settings** — themes, text size, packing behavior, categories, export/import, searchable
 - **Hints** — tap the gray tips at the top of a page to hide them

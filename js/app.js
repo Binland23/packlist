@@ -47,6 +47,8 @@
 
   const CHECK_SVG =
     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
+  const MINUS_SVG =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14"/></svg>';
   const BACK_SVG =
     '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>';
   const CHEV_SVG =
@@ -1226,7 +1228,7 @@
         <button type="button" class="segment" data-view="plan">Plan days</button>
         <button type="button" class="segment active" data-view="pack">Pack</button>
       </div>
-      ${hintHtml('pack', 'Each piece has its own checkbox. Repeats show again on later days — check once, and it stays checked everywhere.')}
+      ${hintHtml('pack', 'Each piece has its own checkbox. Tap an outfit name to pack the whole look. If you wear it again later, checking it once checks it on every day.')}
       <div class="pack-summary">
         <div>
           <p class="label">Packed</p>
@@ -1239,7 +1241,7 @@
           ? `<div class="empty">
               <p class="empty-kicker">Nothing to pack yet</p>
               <h2>Add outfits or items to your days</h2>
-              <p>Pick outfits, add extras for a single day, or restore staples. Each piece gets its own checkbox.</p>
+              <p>Pick outfits, add extras for a single day, or restore staples. Each piece gets its own checkbox — repeats stay in sync.</p>
               <button type="button" class="btn btn-primary" id="back-to-plan">Plan days</button>
             </div>`
           : `<div class="check-list" id="pack-list"></div>
@@ -1276,7 +1278,8 @@
     pack.dayGroups.forEach((day) => {
       const hasOutfits = day.outfits.length;
       const hasExtras = day.extras.length;
-      const hasPieces = day.outfits.some((o) => o.items.length) || hasExtras;
+      const hasPieces =
+        day.outfits.some((o) => o.items.length || (o.keys && o.keys.length && !o.missing)) || hasExtras;
       if (!hasOutfits && !hasExtras && prefs.hideEmptyDays) return;
       if (!hasOutfits && !hasExtras && !prefs.hideEmptyDays) {
         const label = document.createElement('div');
@@ -1293,10 +1296,14 @@
       const label = document.createElement('div');
       label.className = 'check-group-label';
       const dayItems = [
-        ...day.outfits.flatMap((o) => o.items),
+        ...day.outfits.flatMap((o) =>
+          o.items.length
+            ? o.items
+            : (o.keys || []).map((key) => ({ key, packed: o.packed }))
+        ),
         ...day.extras,
       ];
-      const uniqueKeys = [...new Set(dayItems.map((i) => i.key))];
+      const uniqueKeys = uniquePackKeys(dayItems.map((i) => i.key));
       const done = uniqueKeys.filter((k) => dayItems.find((i) => i.key === k)?.packed).length;
       label.innerHTML = `${escapeHtml(day.label)} <span class="check-count" style="float:right">${
         hasPieces ? `${done}/${uniqueKeys.length}` : 'No pieces'
@@ -1304,24 +1311,22 @@
       list.appendChild(label);
 
       day.outfits.forEach((outfit) => {
-        if (prefs.showOutfitHeadings) {
-          const sub = document.createElement('div');
-          sub.className = 'pack-outfit-label';
-          sub.textContent = outfit.name;
-          list.appendChild(sub);
+        const showHeading = prefs.showOutfitHeadings || !outfit.items.length;
+        if (showHeading) {
+          appendOutfitHeading(list, trip, outfit, prefs);
         }
 
-        if (!outfit.items.length) {
+        if (outfit.missing && !outfit.items.length) {
           const empty = document.createElement('div');
           empty.className = 'pack-empty-note';
-          empty.textContent = outfit.missing
-            ? 'This outfit was removed from your library.'
-            : 'No pieces listed — add items to the outfit, or extras to this day.';
+          empty.textContent = 'This outfit was removed from your library.';
           list.appendChild(empty);
           return;
         }
 
-        outfit.items.forEach((item) => appendCheckItem(list, trip, item, prefs));
+        outfit.items.forEach((item) =>
+          appendCheckItem(list, trip, item, prefs, { nested: showHeading })
+        );
       });
 
       if (hasExtras) {
@@ -1331,7 +1336,9 @@
           sub.textContent = 'Added to this day';
           list.appendChild(sub);
         }
-        day.extras.forEach((item) => appendCheckItem(list, trip, item, prefs));
+        day.extras.forEach((item) =>
+          appendCheckItem(list, trip, item, prefs, { nested: prefs.showOutfitHeadings })
+        );
       }
     });
 
@@ -1349,11 +1356,76 @@
     if (PackStore.getPrefs().showPhotos) await fillPhotoSlots(list);
   }
 
-  function appendCheckItem(list, trip, item, prefs = PackStore.getPrefs()) {
+  function uniquePackKeys(keys) {
+    return [...new Set((keys || []).filter(Boolean))];
+  }
+
+  function refreshPackView(tripId) {
+    const y = window.scrollY;
+    const x = window.scrollX;
+    const trip = PackStore.getTrip(tripId);
+    if (!trip) {
+      render();
+      return;
+    }
+    renderPackView(trip);
+    window.scrollTo(x, y);
+    requestAnimationFrame(() => window.scrollTo(x, y));
+  }
+
+  function appendOutfitHeading(list, trip, outfit, prefs = PackStore.getPrefs()) {
+    if (outfit.missing) {
+      const sub = document.createElement('div');
+      sub.className = 'pack-outfit-label';
+      sub.textContent = outfit.name;
+      list.appendChild(sub);
+      return;
+    }
+
+    const keys = outfit.keys || [];
+    const allPacked = !!outfit.packed;
+    const partial = !allPacked && (outfit.packedCount || 0) > 0;
+    if (prefs.hidePackedItems && allPacked) return;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `pack-outfit-check${allPacked ? ' done' : ''}${partial ? ' partial' : ''}`;
+    const repeatNote = outfit.repeat && outfit.firstDayLabel
+      ? `Same as ${outfit.firstDayLabel}`
+      : '';
+    btn.setAttribute('aria-pressed', allPacked ? 'true' : 'false');
+    btn.setAttribute(
+      'aria-label',
+      `${allPacked ? 'Unpack' : 'Pack'} ${outfit.name}${repeatNote ? ` (${repeatNote})` : ''}`
+    );
+    const countLabel = outfit.items.length
+      ? `${outfit.packedCount}/${outfit.items.length}`
+      : allPacked
+        ? 'Packed'
+        : 'Pack';
+    btn.innerHTML = `
+      <span class="checkbox" aria-hidden="true">
+        ${allPacked ? CHECK_SVG : partial ? MINUS_SVG : ''}
+      </span>
+      <span class="check-label">
+        ${escapeHtml(outfit.name)}
+        ${repeatNote ? `<span class="check-note">${escapeHtml(repeatNote)}</span>` : ''}
+      </span>
+      <span class="check-count">${escapeHtml(countLabel)}</span>
+    `;
+    btn.onclick = () => {
+      PackStore.setPackedKeys(trip.id, keys, !allPacked);
+      refreshPackView(trip.id);
+    };
+    list.appendChild(btn);
+  }
+
+  function appendCheckItem(list, trip, item, prefs = PackStore.getPrefs(), { nested = false } = {}) {
     if (prefs.hidePackedItems && item.packed) return;
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = `check-item${item.packed ? ' done' : ''}`;
+    btn.className = `check-item${nested ? ' pack-piece' : ''}${item.packed ? ' done' : ''}`;
+    btn.dataset.key = item.key;
     btn.setAttribute('aria-pressed', item.packed ? 'true' : 'false');
     btn.innerHTML = `
       <span class="checkbox" aria-hidden="true">
@@ -1371,7 +1443,7 @@
     `;
     btn.onclick = () => {
       PackStore.setPacked(trip.id, item.key, !item.packed);
-      render();
+      refreshPackView(trip.id);
     };
     list.appendChild(btn);
   }
@@ -2420,7 +2492,7 @@
               ['settings', 'Settings'],
             ], prefs.startingTab)}
             ${settingToggle('hideEmptyDays', 'Hide empty days', 'Skip days with no outfits or extras on the packing list.', prefs.hideEmptyDays)}
-            ${settingToggle('showOutfitHeadings', 'Show outfit names', 'Label pieces under each look on the packing list.', prefs.showOutfitHeadings)}
+            ${settingToggle('showOutfitHeadings', 'Show outfit names', 'Label each look on the packing list. Tap the name to pack every piece.', prefs.showOutfitHeadings)}
             ${settingToggle('hidePackedItems', 'Hide packed items', 'Once checked, an item drops off the list.', prefs.hidePackedItems)}
             ${settingToggle('showPhotos', 'Show photos', 'Thumbnails for outfits, clothes, accessories, and staples.', prefs.showPhotos)}
             ${settingToggle('confirmDeletes', 'Confirm deletions', 'Ask before deleting trips, outfits, or resetting checks.', prefs.confirmDeletes)}
