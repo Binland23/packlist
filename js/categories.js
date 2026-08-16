@@ -1,6 +1,8 @@
 /**
  * Clothing category catalog for the item picker.
  * Women / Men lists, grouped like a closet taxonomy.
+ * Active = swim + workout; Intimates = special bras/underwear/sleep
+ * that belong on an outfit (trip Basics still cover bulk underwear/socks).
  */
 const ClothingCatalog = (() => {
   const WOMEN = {
@@ -61,6 +63,35 @@ const ClothingCatalog = (() => {
       'Romper',
       'Slip dress',
     ],
+    Active: {
+      Swim: [
+        'One-piece swimsuit',
+        'Bikini top',
+        'Bikini bottom',
+        'Swim shorts',
+        'Cover-up',
+        'Rash guard',
+      ],
+      Workout: [
+        'Sports bra',
+        'Workout top',
+        'Workout tank',
+        'Workout shorts',
+        'Athletic leggings',
+        'Track pants',
+      ],
+    },
+    Intimates: {
+      Bras: [
+        'Everyday bra',
+        'Strapless bra',
+        'Convertible bra',
+        'Backless bra',
+        'Bralette',
+      ],
+      Underwear: ['Underwear', 'Thong', 'Shapewear', 'Slip'],
+      Sleep: ['Pajamas', 'Sleep shirt', 'Nightgown', 'Robe'],
+    },
   };
 
   const MEN = {
@@ -98,6 +129,21 @@ const ClothingCatalog = (() => {
       'Tuxedo',
       'Waistcoat',
     ],
+    Active: {
+      Swim: ['Swim trunks', 'Board shorts', 'Swim briefs', 'Rash guard'],
+      Workout: [
+        'Workout tee',
+        'Workout tank',
+        'Workout shorts',
+        'Compression shorts',
+        'Joggers',
+        'Track pants',
+      ],
+    },
+    Intimates: {
+      Underwear: ['Underwear', 'Boxers', 'Briefs'],
+      Sleep: ['Pajamas', 'Sleep pants', 'Robe'],
+    },
   };
 
   const ACCESSORY_TABS = {
