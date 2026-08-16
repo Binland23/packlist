@@ -346,6 +346,39 @@ const PackStore = (() => {
     return uniqueCats(getPrefs().accessoryCategories, used);
   }
 
+  function listAccessorySubgroups(category) {
+    return ClothingCatalog.accessorySubgroupsFor(category);
+  }
+
+  function accessorySubgroup(item) {
+    if (!item) return null;
+    const subs = listAccessorySubgroups(item.category);
+    if (!subs.length) return null;
+    if (item.sub && subs.includes(item.sub)) return item.sub;
+    const fromCatalog = ClothingCatalog.defaultAccessorySubgroup(item.category, item.name);
+    if (fromCatalog) return fromCatalog;
+    return guessSubgroup(item.name, subs);
+  }
+
+  function listAccessorySections(category) {
+    const items = listAccessories().filter((a) => (a.category || 'Other') === category);
+    const subs = listAccessorySubgroups(category);
+    if (!subs.length) {
+      return [{ id: '', label: null, items }];
+    }
+    const sections = subs.map((sub) => ({
+      id: sub,
+      label: sub,
+      items: items.filter((a) => accessorySubgroup(a) === sub),
+    }));
+    const assigned = new Set(sections.flatMap((s) => s.items.map((a) => a.id)));
+    const leftover = items.filter((a) => !assigned.has(a.id));
+    if (leftover.length) {
+      sections.push({ id: '', label: 'Other', items: leftover });
+    }
+    return sections;
+  }
+
   function uniqueItemNames(list) {
     const seen = new Set();
     const out = [];
@@ -543,14 +576,35 @@ const PackStore = (() => {
     if (!subs.length) return null;
     const n = String(name || '').toLowerCase();
     const rules = [
+      ['Tees long sleeve', /(long[- ]?sleeve).*(tee|t-?shirt|\btop\b)|(tee|t-?shirt).*(long[- ]?sleeve)/],
+      ['Blouses long sleeve', /(long[- ]?sleeve).*(blouse|shirt)|\bdress shirt\b|\bbodysuit\b|\blong sleeve blouse\b/],
+      ['Tees short sleeve', /(short[- ]?sleeve).*(tee|t-?shirt)|\bgraphic tee\b|\bpolo\b|\bt-?shirt\b|\btee\b/],
+      ['Blouses short sleeve', /(short[- ]?sleeve).*(blouse|shirt)|\bblouse\b|\bcrop\b|\btank\b|\bsleeveless\b|\bbasic top\b|\bcasual shirt\b|\btop\b|\bshirt\b/],
+      ['Sweatshirts', /(sweatshirt|sweater|hoodie|turtleneck|crewneck)/],
       ['Coats', /(coat|trench|puffer|parka|peacoat|overcoat|raincoat)/],
-      ['Jackets', /(jacket|blazer|windbreaker|overshirt|shacket|bomber|vest|anorak)/],
+      ['Blazers', /\bblazer\b/],
+      ['Vests', /\bvest\b|\bgilet\b|\bwaistcoat\b/],
+      ['Jackets', /(jacket|windbreaker|overshirt|shacket|bomber|anorak)/],
       ['Sweaters', /(sweater|cardigan|hoodie|fleece|turtleneck|crewneck|knit|\bzip\b)/],
+      ['Jeans', /\bjeans?\b|\bdenim\b/],
+      ['Skirts', /\bskirt\b/],
+      ['Leggings', /\blegging|\btights\b/],
+      ['Shorts', /\bshorts?\b|\bbermuda\b/],
+      ['Pants', /\bpants?\b|\btrousers?\b|\bchinos?\b|\bjoggers?\b|\bsweatpants\b|\bculottes\b|wide-leg/],
+      ['Sandals', /\bsandal|\bslide|\bflip[- ]?flop/],
+      ['Sneakers', /\bsneaker|\btrainer|\bwalking shoe/],
+      ['Boots', /\bboot/],
+      ['Heels', /\bheel|\bpump|\bstiletto/],
+      ['Flats', /\bflat|\bloafer|\bballet|\bdress shoe|\boxford|\bderby/],
     ];
     for (const [sub, re] of rules) {
       if (subs.includes(sub) && re.test(n)) return sub;
     }
-    return subs[0];
+    const named = subs.find((sub) => {
+      const key = sub.toLowerCase();
+      return n.includes(key) || key.includes(n);
+    });
+    return named || null;
   }
 
   function resolveSubgroup(gender, tab, name, patch, preferred) {
@@ -562,7 +616,7 @@ const PackStore = (() => {
     if (extra && subs.includes(extra)) return extra;
     const fromCatalog = ClothingCatalog.defaultSubgroup(g, tab, name);
     if (fromCatalog) return fromCatalog;
-    return guessSubgroup(name, subs);
+    return guessSubgroup(name, subs) || subs[0];
   }
 
   function applyNamedOrder(merged, extras, order) {
@@ -1089,7 +1143,17 @@ const PackStore = (() => {
     return load().accessories.slice();
   }
 
-  function addAccessory({ name, category, photoId }) {
+  function resolveAccessorySub(category, name, preferred) {
+    const cat = (category || 'Other').trim() || 'Other';
+    const subs = listAccessorySubgroups(cat);
+    if (!subs.length) return null;
+    if (preferred && subs.includes(preferred)) return preferred;
+    const fromCatalog = ClothingCatalog.defaultAccessorySubgroup(cat, name);
+    if (fromCatalog) return fromCatalog;
+    return guessSubgroup(name, subs);
+  }
+
+  function addAccessory({ name, category, photoId, sub }) {
     const trimmed = normalizeName(name);
     if (!trimmed) return null;
     const existing = listAccessories().find(
@@ -1097,11 +1161,14 @@ const PackStore = (() => {
     );
     if (existing) return existing;
     const id = uid();
+    const cat = (category || 'Other').trim() || 'Other';
+    const assigned = resolveAccessorySub(cat, trimmed, sub);
     update((state) => {
       state.accessories.push({
         id,
         name: trimmed,
-        category: (category || 'Other').trim() || 'Other',
+        category: cat,
+        sub: assigned || null,
         photoId: photoId || null,
       });
     });
@@ -1119,13 +1186,19 @@ const PackStore = (() => {
         (a) => a.id !== id && a.name.toLowerCase() === name.toLowerCase()
       );
       if (duplicate) return;
+      const category =
+        patch.category != null
+          ? String(patch.category).trim() || 'Other'
+          : cur.category;
+      const assigned =
+        patch.sub !== undefined || patch.category != null || patch.name != null
+          ? resolveAccessorySub(category, name, patch.sub !== undefined ? patch.sub : cur.sub)
+          : cur.sub || null;
       state.accessories[idx] = {
         ...cur,
         name,
-        category:
-          patch.category != null
-            ? String(patch.category).trim() || 'Other'
-            : cur.category,
+        category,
+        sub: assigned || null,
         photoId: patch.photoId !== undefined ? patch.photoId || null : cur.photoId || null,
       };
     });
@@ -1550,6 +1623,9 @@ const PackStore = (() => {
     resetHints,
     listStapleCategories,
     listAccessoryCategories,
+    listAccessorySubgroups,
+    listAccessorySections,
+    accessorySubgroup,
     listClothingTabs,
     listClothingSubgroups,
     listClothingItems,

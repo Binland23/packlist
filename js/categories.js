@@ -4,50 +4,51 @@
  */
 const ClothingCatalog = (() => {
   const WOMEN = {
-    Tops: [
-      'T-shirt',
-      'Top',
-      'Blouse',
-      'Shirt',
-      'Sweater',
-      'Turtleneck',
-      'Crop top',
-      'Tank top',
-      'Basic t-shirt',
-      'Long sleeve top',
-      'Graphic tee',
-      'Dress shirt',
-      'Bodysuit',
-      'Thin long sleeve shirt',
-      'Long sleeve t-shirt',
-      'Casual shirt',
-      'Long sleeve blouse',
-      'Short sleeve top',
-      'Polo shirt',
-      'Oversized t-shirt',
-      'Sleeveless top',
-      'Basic top',
-    ],
+    Tops: {
+      'Tees short sleeve': [
+        'T-shirt',
+        'Basic t-shirt',
+        'Graphic tee',
+        'Oversized t-shirt',
+        'Polo shirt',
+      ],
+      'Tees long sleeve': [
+        'Long sleeve t-shirt',
+        'Long sleeve top',
+        'Thin long sleeve shirt',
+      ],
+      'Blouses short sleeve': [
+        'Blouse',
+        'Top',
+        'Crop top',
+        'Tank top',
+        'Short sleeve top',
+        'Sleeveless top',
+        'Basic top',
+        'Casual shirt',
+      ],
+      'Blouses long sleeve': [
+        'Shirt',
+        'Dress shirt',
+        'Long sleeve blouse',
+        'Bodysuit',
+      ],
+      Sweatshirts: ['Sweater', 'Sweatshirt', 'Turtleneck'],
+    },
     Layers: {
       Sweaters: ['Cardigan', 'Hoodie', 'Fleece'],
-      Jackets: ['Blazer', 'Jacket', 'Vest', 'Denim jacket', 'Windbreaker', 'Overshirt'],
+      Blazers: ['Blazer'],
+      Jackets: ['Jacket', 'Denim jacket', 'Windbreaker', 'Overshirt'],
       Coats: ['Coat', 'Trench coat', 'Puffer'],
+      Vests: ['Vest'],
     },
-    Bottoms: [
-      'Jeans',
-      'Pants',
-      'Trousers',
-      'Shorts',
-      'Skirt',
-      'Leggings',
-      'Culottes',
-      'Joggers',
-      'Wide-leg pants',
-      'Mini skirt',
-      'Midi skirt',
-      'Maxi skirt',
-      'Bike shorts',
-    ],
+    Bottoms: {
+      Jeans: ['Jeans'],
+      Pants: ['Pants', 'Trousers', 'Joggers', 'Wide-leg pants', 'Culottes'],
+      Shorts: ['Shorts', 'Bike shorts'],
+      Leggings: ['Leggings'],
+      Skirts: ['Skirt', 'Mini skirt', 'Midi skirt', 'Maxi skirt'],
+    },
     Dresses: [
       'Dress',
       'Mini dress',
@@ -63,33 +64,33 @@ const ClothingCatalog = (() => {
   };
 
   const MEN = {
-    Tops: [
-      'T-shirt',
-      'Shirt',
-      'Polo',
-      'Sweater',
-      'Tank',
-      'Graphic tee',
-      'Dress shirt',
-      'Long sleeve shirt',
-      'Henley',
-      'Hoodie',
-      'Oversized t-shirt',
-    ],
+    Tops: {
+      'Tees short sleeve': [
+        'T-shirt',
+        'Polo',
+        'Tank',
+        'Graphic tee',
+        'Oversized t-shirt',
+      ],
+      'Tees long sleeve': ['Long sleeve shirt', 'Henley'],
+      'Blouses short sleeve': ['Shirt'],
+      'Blouses long sleeve': ['Dress shirt'],
+      Sweatshirts: ['Sweater', 'Hoodie'],
+    },
     Layers: {
       Sweaters: ['Cardigan', 'Fleece'],
-      Jackets: ['Jacket', 'Blazer', 'Vest', 'Overshirt', 'Windbreaker', 'Denim jacket'],
+      Blazers: ['Blazer'],
+      Jackets: ['Jacket', 'Overshirt', 'Windbreaker', 'Denim jacket'],
       Coats: ['Coat', 'Puffer'],
+      Vests: ['Vest'],
     },
-    Bottoms: [
-      'Jeans',
-      'Chinos',
-      'Shorts',
-      'Trousers',
-      'Joggers',
-      'Sweatpants',
-      'Dress pants',
-    ],
+    Bottoms: {
+      Jeans: ['Jeans'],
+      Pants: ['Chinos', 'Trousers', 'Joggers', 'Sweatpants', 'Dress pants'],
+      Shorts: ['Shorts'],
+      Leggings: [],
+      Skirts: [],
+    },
     Suits: [
       'Suit',
       'Suit jacket',
@@ -102,18 +103,13 @@ const ClothingCatalog = (() => {
   const ACCESSORY_TABS = {
     Jewelry: ['Earrings', 'Necklace', 'Bracelet', 'Ring', 'Watch', 'Hoops', 'Studs'],
     Bags: ['Tote bag', 'Crossbody bag', 'Clutch', 'Backpack', 'Belt bag'],
-    Shoes: [
-      'Sneakers',
-      'Sandals',
-      'Heels',
-      'Flats',
-      'Boots',
-      'Ankle boots',
-      'Loafers',
-      'Slides',
-      'Walking shoes',
-      'Dress shoes',
-    ],
+    Shoes: {
+      Sandals: ['Sandals', 'Slides'],
+      Sneakers: ['Sneakers', 'Walking shoes'],
+      Flats: ['Flats', 'Loafers'],
+      Heels: ['Heels', 'Dress shoes'],
+      Boots: ['Boots', 'Ankle boots'],
+    },
     Other: ['Belt', 'Sunglasses', 'Hat', 'Scarf', 'Hair ties', 'Hair clip'],
   };
 
@@ -123,6 +119,30 @@ const ClothingCatalog = (() => {
       return Object.values(value).flatMap((items) => (Array.isArray(items) ? items : []));
     }
     return [];
+  }
+
+  function subgroupKeys(value) {
+    if (value && !Array.isArray(value) && typeof value === 'object') return Object.keys(value);
+    return [];
+  }
+
+  function pillsFromSubgroups(value) {
+    if (!value || Array.isArray(value) || typeof value !== 'object') return null;
+    const out = {};
+    Object.keys(value).forEach((sub) => {
+      out[sub] = Array.isArray(value[sub]) ? value[sub].slice() : [];
+    });
+    return out;
+  }
+
+  function defaultSubIn(groups, name) {
+    if (!groups) return null;
+    const key = String(name || '').trim().toLowerCase();
+    if (!key) return null;
+    const found = Object.keys(groups).find((sub) =>
+      groups[sub].some((item) => item.toLowerCase() === key)
+    );
+    return found || null;
   }
 
   function groupsFor(gender) {
@@ -144,30 +164,31 @@ const ClothingCatalog = (() => {
   }
 
   function subgroupNamesFor(gender, tab) {
-    const value = groupsFor(gender)[tab];
-    if (value && !Array.isArray(value) && typeof value === 'object') return Object.keys(value);
-    return [];
+    return subgroupKeys(groupsFor(gender)[tab]);
   }
 
   function pillsBySubgroup(gender, tab) {
-    const value = groupsFor(gender)[tab];
-    if (!value || Array.isArray(value) || typeof value !== 'object') return null;
-    const out = {};
-    Object.keys(value).forEach((sub) => {
-      out[sub] = Array.isArray(value[sub]) ? value[sub].slice() : [];
-    });
-    return out;
+    return pillsFromSubgroups(groupsFor(gender)[tab]);
   }
 
   function defaultSubgroup(gender, tab, name) {
-    const groups = pillsBySubgroup(gender, tab);
-    if (!groups) return null;
-    const key = String(name || '').trim().toLowerCase();
-    if (!key) return null;
-    const found = Object.keys(groups).find((sub) =>
-      groups[sub].some((item) => item.toLowerCase() === key)
-    );
-    return found || null;
+    return defaultSubIn(pillsBySubgroup(gender, tab), name);
+  }
+
+  function accessorySubgroupsFor(category) {
+    return subgroupKeys(ACCESSORY_TABS[category]);
+  }
+
+  function accessoryPillsBySubgroup(category) {
+    return pillsFromSubgroups(ACCESSORY_TABS[category]);
+  }
+
+  function defaultAccessorySubgroup(category, name) {
+    return defaultSubIn(accessoryPillsBySubgroup(category), name);
+  }
+
+  function accessoryPillsFor(category) {
+    return flattenGroup(ACCESSORY_TABS[category]);
   }
 
   function searchAll(gender, query, clothingGroups) {
@@ -189,7 +210,15 @@ const ClothingCatalog = (() => {
       });
     });
     Object.entries(ACCESSORY_TABS).forEach(([group, items]) => {
-      items.forEach((name) => {
+      if (items && !Array.isArray(items) && typeof items === 'object') {
+        Object.entries(items).forEach(([sub, list]) => {
+          (list || []).forEach((name) => {
+            if (name.toLowerCase().includes(q)) hits.push({ name, group, sub });
+          });
+        });
+        return;
+      }
+      (items || []).forEach((name) => {
         if (name.toLowerCase().includes(q)) hits.push({ name, group });
       });
     });
@@ -204,6 +233,10 @@ const ClothingCatalog = (() => {
     subgroupNamesFor,
     pillsBySubgroup,
     defaultSubgroup,
+    accessorySubgroupsFor,
+    accessoryPillsBySubgroup,
+    defaultAccessorySubgroup,
+    accessoryPillsFor,
     searchAll,
     ACCESSORY_TABS,
   };
