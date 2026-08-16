@@ -23,6 +23,7 @@
   let route = { name: 'trips', params: {} };
   let toastTimer = null;
   let sheetOnClose = null;
+  let activeSortAbort = null;
 
   // ——— Utils ———
   function escapeHtml(str) {
@@ -50,6 +51,8 @@
     '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>';
   const CHEV_SVG =
     '<svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>';
+  const GRIP_SVG =
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
 
   const THEMES = [
     { id: 'linen', name: 'Linen', note: 'Warm paper & terracotta', wash: '#F4EFE6', accent: '#C45C3E' },
@@ -82,7 +85,15 @@
       .join('');
   }
 
-  function clothingPlaceholder(tab) {
+  function clothingPlaceholder(tab, sub) {
+    if (tab === 'Layers') {
+      const layers = {
+        Sweaters: 'e.g. Cream cardigan',
+        Jackets: 'e.g. Navy blazer',
+        Coats: 'e.g. Wool coat',
+      };
+      return layers[sub] || 'e.g. Navy blazer';
+    }
     const map = {
       Tops: 'e.g. White linen tee',
       Layers: 'e.g. Navy blazer',
@@ -91,6 +102,9 @@
       Suits: 'e.g. Navy suit',
       Shoes: 'e.g. White sneakers',
       Accessories: 'e.g. Chunky gold necklace',
+      Jewelry: 'e.g. Chunky gold necklace',
+      Bags: 'e.g. Crossbody bag',
+      Other: 'e.g. Silk scarf',
     };
     return map[tab] || 'e.g. White linen tee';
   }
@@ -115,6 +129,139 @@
         setTimeout(remove, 280);
       };
     });
+  }
+
+  function bindRowSort(stack, onReorder) {
+    if (!stack) return;
+
+    stack.addEventListener('pointerdown', (e) => {
+      const handle = e.target.closest('.drag-handle');
+      if (!handle || !stack.contains(handle)) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      const row = handle.closest('[data-sort-id]');
+      if (!row || row.parentElement !== stack) return;
+      e.preventDefault();
+      e.stopPropagation();
+      beginRowSort(e, stack, row, handle, onReorder);
+    });
+  }
+
+  function beginRowSort(startEvent, stack, row, handle, onReorder) {
+    const rect = row.getBoundingClientRect();
+    const placeholder = document.createElement('div');
+    placeholder.className = 'sort-placeholder';
+    placeholder.style.height = `${rect.height}px`;
+
+    const ghost = row.cloneNode(true);
+    ghost.classList.add('sort-ghost');
+    ghost.setAttribute('aria-hidden', 'true');
+    ghost.style.width = `${rect.width}px`;
+    ghost.style.left = `${rect.left}px`;
+    ghost.style.top = `${rect.top}px`;
+    ghost.querySelectorAll('button').forEach((btn) => {
+      btn.tabIndex = -1;
+      btn.disabled = true;
+    });
+    document.body.appendChild(ghost);
+
+    row.after(placeholder);
+    row.classList.add('sorting-row');
+
+    const state = {
+      pointerId: startEvent.pointerId,
+      offsetY: startEvent.clientY - rect.top,
+      offsetX: startEvent.clientX - rect.left,
+      lastY: startEvent.clientY,
+      autoScroll: 0,
+      moved: false,
+      done: false,
+    };
+
+    try {
+      handle.setPointerCapture(startEvent.pointerId);
+    } catch {
+      /* capture is best-effort on older browsers */
+    }
+
+    document.body.classList.add('sorting');
+
+    const onMove = (event) => {
+      if (state.done || event.pointerId !== state.pointerId) return;
+      event.preventDefault();
+      state.moved = true;
+      state.lastY = event.clientY;
+      ghost.style.top = `${event.clientY - state.offsetY}px`;
+      ghost.style.left = `${event.clientX - state.offsetX}px`;
+      movePlaceholder(event.clientY);
+      const topEdge = 80;
+      const bottomEdge = window.innerHeight - 96;
+      if (event.clientY < topEdge) state.autoScroll = -14;
+      else if (event.clientY > bottomEdge) state.autoScroll = 14;
+      else state.autoScroll = 0;
+    };
+
+    const onUp = (event) => {
+      if (event.pointerId !== state.pointerId) return;
+      finish();
+    };
+
+    const onTouchMove = (event) => {
+      event.preventDefault();
+    };
+
+    function movePlaceholder(y) {
+      const kids = [...stack.children].filter((el) => el !== row && el !== placeholder);
+      for (const kid of kids) {
+        const box = kid.getBoundingClientRect();
+        if (y < box.top + box.height / 2) {
+          stack.insertBefore(placeholder, kid);
+          return;
+        }
+      }
+      stack.appendChild(placeholder);
+    }
+
+    let raf = requestAnimationFrame(function loop() {
+      if (state.done) return;
+      if (state.autoScroll) {
+        window.scrollBy(0, state.autoScroll);
+        movePlaceholder(state.lastY);
+      }
+      raf = requestAnimationFrame(loop);
+    });
+
+    function finish() {
+      if (state.done) return;
+      state.done = true;
+      if (activeSortAbort === finish) activeSortAbort = null;
+      cancelAnimationFrame(raf);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('touchmove', onTouchMove);
+      try {
+        handle.releasePointerCapture(state.pointerId);
+      } catch {
+        /* already released */
+      }
+      document.body.classList.remove('sorting');
+      ghost.remove();
+      placeholder.replaceWith(row);
+      row.classList.remove('sorting-row');
+      if (!state.moved) return;
+      const names = [...stack.querySelectorAll('[data-sort-id]')].map((el) => el.dataset.sortId);
+      onReorder(names);
+    }
+
+    activeSortAbort = finish;
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onUp);
+    document.addEventListener('pointermove', onMove, { passive: false });
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
   }
 
   // ——— Routing ———
@@ -244,6 +391,143 @@
     );
   }
 
+  function itemThumbHtml(photoId, extraClass = '') {
+    if (!photoId || !PackStore.getPrefs().showPhotos) return '';
+    return `<span class="item-thumb${extraClass ? ` ${escapeHtml(extraClass)}` : ''}" data-photo-id="${escapeHtml(
+      photoId
+    )}"></span>`;
+  }
+
+  async function deleteStoredPhoto(photoId) {
+    if (!photoId) return;
+    PackDB.revokeObjectUrl(photoId);
+    try {
+      await PackDB.deletePhoto(photoId);
+    } catch {
+      /* missing blob is fine */
+    }
+  }
+
+  function createPhotoFieldState(existingId) {
+    return {
+      existingId: existingId || null,
+      pendingFile: null,
+      remove: false,
+    };
+  }
+
+  function photoPlaceholderMarkup(inputId, copy) {
+    return `
+      <div class="photo-placeholder-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+      </div>
+      <p>${copy?.title || 'Add a photo later if you want'}</p>
+      <span class="hint">${copy?.hint || 'Tap to choose from your library'}</span>
+      <input type="file" id="${escapeHtml(inputId)}" accept="image/*" />
+    `;
+  }
+
+  function photoFieldHtml(inputId, { compact = false, copy } = {}) {
+    return `
+      <div class="field">
+        <label>Photo <span style="font-weight:400;color:var(--ink-faint)">(optional)</span></label>
+        <div class="photo-area${compact ? ' item-photo' : ''}" id="${escapeHtml(
+          inputId
+        )}-area" tabindex="0" role="button" aria-label="Add photo">
+          ${photoPlaceholderMarkup(inputId, copy)}
+        </div>
+      </div>
+    `;
+  }
+
+  function bindPhotoField(photoArea, state, inputId, copy) {
+    if (!photoArea || !state) return;
+
+    function resetPlaceholder() {
+      photoArea.classList.remove('has-photo');
+      photoArea.innerHTML = photoPlaceholderMarkup(inputId, copy);
+      const input = $(`#${inputId}`, photoArea);
+      if (input) {
+        input.onchange = (e) => {
+          if (e.target.files?.[0]) setPendingPhoto(e.target.files[0]);
+        };
+      }
+    }
+
+    function bindPhotoActions() {
+      const change = $('.photo-change', photoArea);
+      const clear = $('.photo-clear', photoArea);
+      if (change) {
+        change.onclick = () => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = 'image/*';
+          input.onchange = () => {
+            if (input.files?.[0]) setPendingPhoto(input.files[0]);
+          };
+          input.click();
+        };
+      }
+      if (clear) {
+        clear.onclick = () => {
+          state.remove = true;
+          state.pendingFile = null;
+          resetPlaceholder();
+        };
+      }
+    }
+
+    function setPhotoMarkup(src) {
+      photoArea.classList.add('has-photo');
+      photoArea.innerHTML = `
+        <img src="${src}" alt="" />
+        <div class="photo-actions">
+          <button type="button" class="btn btn-secondary photo-change" style="min-height:40px;padding:8px 12px;font-size:13px">Change</button>
+          <button type="button" class="btn btn-danger photo-clear" style="min-height:40px;padding:8px 12px;font-size:13px">Remove</button>
+        </div>
+      `;
+      bindPhotoActions();
+    }
+
+    function setPendingPhoto(file) {
+      state.pendingFile = file;
+      state.remove = false;
+      setPhotoMarkup(URL.createObjectURL(file));
+    }
+
+    async function showExistingPhoto() {
+      if (!state.existingId || state.remove) return;
+      const url = await PackDB.getObjectUrl(state.existingId);
+      if (!url) return;
+      setPhotoMarkup(url);
+    }
+
+    const photoInput = $(`#${inputId}`, photoArea);
+    if (photoInput) {
+      photoInput.onchange = () => {
+        if (photoInput.files?.[0]) setPendingPhoto(photoInput.files[0]);
+      };
+    }
+
+    if (state.pendingFile) setPendingPhoto(state.pendingFile);
+    else if (state.existingId && !state.remove) showExistingPhoto();
+  }
+
+  async function commitPhotoField(state) {
+    let nextId = state.existingId || null;
+    if (state.remove && state.existingId) {
+      await deleteStoredPhoto(state.existingId);
+      nextId = null;
+    }
+    if (state.pendingFile) {
+      const blob = await PackDB.compressImage(state.pendingFile);
+      nextId = nextId || PackStore.uid();
+      await PackDB.putPhoto(nextId, blob);
+      PackDB.revokeObjectUrl(nextId);
+    }
+    return nextId;
+  }
+
   // ——— Category picker ———
   function mountCategoryPicker(container, { onPick, onBack, showBack = false } = {}) {
     let gender = PackStore.getPrefs().clothingGender || 'women';
@@ -260,11 +544,11 @@
       return picked.has(name.toLowerCase());
     }
 
-    function pillButton(name, group) {
+    function pillButton(name, group, photoId) {
       const extra = group ? `<span class="cat-pill-group">${escapeHtml(group)}</span>` : '';
       return `
         <button type="button" class="cat-pill${isPicked(name) ? ' picked' : ''}" data-pick="${escapeHtml(name)}">
-          ${escapeHtml(name)}${extra}
+          ${itemThumbHtml(photoId, 'cat-pill-thumb')}${escapeHtml(name)}${extra}
         </button>
       `;
     }
@@ -276,6 +560,7 @@
       const searching = q.length > 0;
 
       let pillsInner = '';
+      const clothingSubs = tab === 'Accessories' ? [] : PackStore.listClothingSubgroups(gender, tab);
       if (searching) {
         const hits = PackStore.searchClothing(gender, q);
         const bankHits = PackStore.listAccessories().filter((a) =>
@@ -286,12 +571,18 @@
         } else {
           if (bankHits.length) {
             pillsInner += `<p class="cat-group-label">Your accessories</p><div class="cat-pills">${bankHits
-              .map((a) => pillButton(a.name, a.category))
+              .map((a) => pillButton(a.name, a.category, a.photoId))
               .join('')}</div>`;
           }
           if (hits.length) {
             pillsInner += `<p class="cat-group-label">Categories</p><div class="cat-pills">${hits
-              .map((h) => pillButton(h.name, h.group))
+              .map((h) =>
+                pillButton(
+                  h.name,
+                  h.sub || h.group,
+                  PackStore.clothingPhotoId(gender, h.group, h.name) || PackStore.findItemPhotoId(h.name)
+                )
+              )
               .join('')}</div>`;
           }
         }
@@ -312,7 +603,7 @@
         const allCats = [...catOrder, ...extraCats];
 
         if (!bank.length) {
-          pillsInner += `<p class="cat-empty">Add your own jewelry — “chunky gold necklace”, the pearl earrings — or tap a suggestion below.</p>`;
+          pillsInner += `<p class="cat-empty">Add your own jewelry, bags, or shoes — or tap a suggestion below.</p>`;
         }
 
         allCats.forEach((cat) => {
@@ -321,19 +612,31 @@
           if (!list.length && !suggestions.length) return;
           pillsInner += `<p class="cat-group-label">${escapeHtml(cat)}</p>`;
           if (list.length) {
-            pillsInner += `<div class="cat-pills">${list.map((a) => pillButton(a.name)).join('')}</div>`;
+            pillsInner += `<div class="cat-pills">${list.map((a) => pillButton(a.name, null, a.photoId)).join('')}</div>`;
           } else {
             pillsInner += `<p class="cat-group-label subtle">Suggestions</p><div class="cat-pills">${suggestions
-              .map((n) => pillButton(n))
+              .map((n) => pillButton(n, null, PackStore.findItemPhotoId(n)))
               .join('')}</div>`;
           }
         });
       } else {
-        const pills = PackStore.listClothingItems(gender, tab) || [];
-        if (!pills.length) {
+        const sections = PackStore.listClothingSections(gender, tab);
+        const hasItems = sections.some((section) => section.items.length);
+        if (!hasItems) {
           pillsInner = `<p class="cat-empty">Nothing in ${escapeHtml(tab)} yet. Add your own below, or customize this list.</p>`;
+        } else if (sections.length === 1 && !sections[0].label) {
+          pillsInner = `<div class="cat-pills">${sections[0].items
+            .map((n) => pillButton(n, null, PackStore.clothingPhotoId(gender, tab, n)))
+            .join('')}</div>`;
         } else {
-          pillsInner = `<div class="cat-pills">${pills.map((n) => pillButton(n)).join('')}</div>`;
+          pillsInner = sections
+            .map((section) => {
+              if (!section.items.length) return '';
+              return `<p class="cat-group-label">${escapeHtml(section.label)}</p><div class="cat-pills">${section.items
+                .map((n) => pillButton(n, null, PackStore.clothingPhotoId(gender, tab, n)))
+                .join('')}</div>`;
+            })
+            .join('');
         }
       }
 
@@ -386,7 +689,7 @@
             }</label>
             <div class="input-row">
               <input class="input" id="cat-custom-input" placeholder="${escapeHtml(
-                clothingPlaceholder(tab)
+                clothingPlaceholder(tab, clothingSubs[0])
               )}" autocomplete="off" />
               <button type="button" class="btn btn-secondary" id="cat-custom-add" style="min-width:72px">Add</button>
             </div>
@@ -402,7 +705,17 @@
                     <input type="checkbox" id="cat-save-bank" checked />
                     Save to my jewelry &amp; accessories
                   </label>`
-                : `<label class="check-inline">
+                : `${
+                    clothingSubs.length
+                      ? `<div class="field" style="margin-top:10px">
+                          <label for="cat-custom-sub">Save under</label>
+                          <select class="input" id="cat-custom-sub">
+                            ${optionHtml(clothingSubs, clothingSubs[0])}
+                          </select>
+                        </div>`
+                      : ''
+                  }
+                  <label class="check-inline">
                     <input type="checkbox" id="cat-save-list" checked />
                     Save to my ${escapeHtml(tab)} list
                   </label>`
@@ -467,7 +780,8 @@
           const category = $('#cat-custom-cat', container)?.value || 'Jewelry';
           if (saveBank) PackStore.addAccessory({ name, category });
         } else if ($('#cat-save-list', container)?.checked) {
-          PackStore.addClothingItem(gender, tab, name);
+          const sub = $('#cat-custom-sub', container)?.value || '';
+          PackStore.addClothingItem(gender, tab, name, sub || undefined);
         }
         markPicked(name);
         if (onPick) onPick(name);
@@ -482,6 +796,7 @@
           addCustom();
         }
       });
+      if (PackStore.getPrefs().showPhotos) fillPhotoSlots(container);
     }
 
     paint();
@@ -615,7 +930,7 @@
     backBtn.onclick = () => navigate('trips');
 
     if (view === 'pack') {
-      renderPackView(trip);
+      await renderPackView(trip);
       return;
     }
 
@@ -713,6 +1028,7 @@
           const extra = document.createElement('div');
           extra.className = 'day-item-row';
           extra.innerHTML = `
+            ${itemThumbHtml(PackStore.findItemPhotoId(item.name), 'pack-thumb')}
             <span class="name">${escapeHtml(item.name)}</span>
             <span class="tag">This day</span>
             <button type="button" class="remove" aria-label="Remove ${escapeHtml(item.name)}">
@@ -797,6 +1113,7 @@
           const row = document.createElement('div');
           row.className = 'staple-row compact';
           row.innerHTML = `
+            ${itemThumbHtml(s.photoId, 'pack-thumb')}
             <span class="name">${escapeHtml(s.name)}</span>
             ${s.source === 'trip' ? '<span class="tag">This trip</span>' : ''}
             <button type="button" class="del" aria-label="Remove ${escapeHtml(s.name)} from this trip">
@@ -819,6 +1136,7 @@
     if (restoreBtn) restoreBtn.onclick = () => showTripStaplesSheet(trip);
     const manageBtn = $('#manage-trip-staples', el);
     if (manageBtn) manageBtn.onclick = () => showTripStaplesSheet(trip);
+    if (PackStore.getPrefs().showPhotos) fillPhotoSlots(el);
   }
 
   function showAddTripStaple(trip) {
@@ -899,7 +1217,7 @@
     });
   }
 
-  function renderPackView(trip) {
+  async function renderPackView(trip) {
     const pack = PackStore.buildPackingList(trip.id);
     const pct = pack.total ? Math.round((pack.packedCount / pack.total) * 100) : 0;
 
@@ -1027,6 +1345,8 @@
       list.appendChild(label);
       items.forEach((item) => appendCheckItem(list, trip, item, prefs));
     });
+
+    if (PackStore.getPrefs().showPhotos) await fillPhotoSlots(list);
   }
 
   function appendCheckItem(list, trip, item, prefs = PackStore.getPrefs()) {
@@ -1039,6 +1359,7 @@
       <span class="checkbox" aria-hidden="true">
         ${item.packed ? CHECK_SVG : ''}
       </span>
+      ${itemThumbHtml(item.photoId, 'pack-thumb')}
       <span class="check-label">
         ${escapeHtml(item.name)}
         ${
@@ -1158,7 +1479,7 @@
   async function renderOutfits() {
     const outfits = PackStore.listOutfits();
     setChrome({
-      title: 'Outfits',
+      title: 'Closet',
       eyebrow: 'Library',
       showBack: false,
       action: {
@@ -1230,7 +1551,7 @@
   function renderAccessories() {
     const accessories = PackStore.listAccessories();
     setChrome({
-      title: 'Accessories',
+      title: 'Closet',
       eyebrow: 'Your pieces',
       showBack: false,
       action: {
@@ -1251,7 +1572,7 @@
       <div class="section">
         ${hintHtml(
           'accessories',
-          'Add your own jewelry here — chunky gold necklace, the pearl earrings — just like staples. Delete anything generic that isn’t yours. Tap a piece to rename it.'
+          'Jewelry, bags, and shoes you actually pack. Add “white sneakers” or “chunky gold necklace” once, then tap them onto outfits or days.'
         )}
         <div id="accessories-list"></div>
       </div>
@@ -1264,32 +1585,38 @@
     bindHints();
 
     const list = $('#accessories-list');
-    if (!accessories.length) {
-      list.innerHTML = `
-        <div class="empty" style="padding-top:8px">
-          <h2 style="font-size:22px">Your jewelry lives here</h2>
-          <p>Add the pieces you actually own. They show up as taps when you build outfits or extras for a day — no generic “gold necklace.”</p>
-        </div>
-      `;
-    } else {
-      const order = PackStore.listAccessoryCategories().concat(
-        [...groups.keys()].filter((c) => !PackStore.listAccessoryCategories().includes(c))
-      );
-      order.forEach((cat) => {
-        const items = groups.get(cat);
-        if (!items?.length) return;
-        const section = document.createElement('div');
-        section.className = 'section';
-        section.style.marginBottom = '20px';
-        section.innerHTML = `<div class="section-head"><h2 class="section-title">${escapeHtml(
-          cat
-        )}</h2></div><div class="stack"></div>`;
-        const stack = $('.stack', section);
+    const order = PackStore.listAccessoryCategories().concat(
+      [...groups.keys()].filter((c) => !PackStore.listAccessoryCategories().includes(c))
+    );
+    order.forEach((cat) => {
+      const items = groups.get(cat) || [];
+      if (!items.length && cat !== 'Shoes' && accessories.length) return;
+      const section = document.createElement('div');
+      section.className = 'section';
+      section.style.marginBottom = '20px';
+      section.innerHTML = `
+          <div class="section-head">
+            <h2 class="section-title">${escapeHtml(cat)}</h2>
+            <button type="button" class="clothes-sub-add" data-cat="${escapeHtml(cat)}">Add</button>
+          </div>
+        `;
+      if (!items.length) {
+        const empty = document.createElement('p');
+        empty.className = 'clothes-sub-empty';
+        empty.textContent =
+          cat === 'Shoes'
+            ? 'Nothing here yet. Add the pairs you actually pack.'
+            : 'Nothing here yet. Add the pieces you actually pack.';
+        section.appendChild(empty);
+      } else {
+        const stack = document.createElement('div');
+        stack.className = 'stack';
         items.forEach((a) => {
           const row = document.createElement('div');
           row.className = 'staple-row library-row';
           row.innerHTML = `
             <button type="button" class="library-edit" aria-label="Edit ${escapeHtml(a.name)}">
+              ${itemThumbHtml(a.photoId)}
               <span class="name">${escapeHtml(a.name)}</span>
               <span class="library-edit-hint">Edit</span>
             </button>
@@ -1298,44 +1625,56 @@
             </button>
           `;
           row.querySelector('.library-edit').onclick = () => showAccessoryEditor(a);
-          row.querySelector('.del').onclick = () => {
+          row.querySelector('.del').onclick = async () => {
             if (!askConfirm(`Remove “${a.name}” from your list?`)) return;
-            PackStore.deleteAccessory(a.id);
+            const removed = PackStore.deleteAccessory(a.id);
+            await deleteStoredPhoto(removed?.photoId);
             toast('Accessory removed');
             render();
           };
           stack.appendChild(row);
         });
-        list.appendChild(section);
-      });
-    }
+        section.appendChild(stack);
+      }
+      list.appendChild(section);
+    });
+    $$('[data-cat]', list).forEach((btn) => {
+      btn.onclick = () => showAccessoryEditor(null, { category: btn.dataset.cat });
+    });
 
     $('#add-accessory-btn').onclick = () => showAccessoryEditor();
+    if (PackStore.getPrefs().showPhotos) fillPhotoSlots(list);
   }
 
-  function showAccessoryEditor(accessory = null) {
+  function showAccessoryEditor(accessory = null, preset = {}) {
     const isEdit = !!accessory;
+    const defaultCat = accessory?.category || preset.category || 'Jewelry';
+    const photoState = createPhotoFieldState(accessory?.photoId);
+    const photoCopy = { title: 'Add a photo of this piece', hint: 'Tap to choose from your library' };
     openSheet(
       isEdit ? 'Edit piece' : 'Add your piece',
       `
       <p class="hint" style="margin:0 0 12px">${
         isEdit
           ? 'This name is what you’ll tap when building outfits or adding extras to a day.'
-          : 'Your actual jewelry and bags — not a generic “necklace”. Add “chunky gold necklace” once, then tap it anytime.'
+          : 'Your actual jewelry, bags, and shoes — not a generic “necklace”. Add “white sneakers” once, then tap it anytime.'
       }</p>
       <form id="accessory-form">
         <div class="field">
           <label for="accessory-name">Item</label>
-          <input class="input" id="accessory-name" placeholder="Chunky gold necklace" value="${
+          <input class="input" id="accessory-name" placeholder="${escapeHtml(
+            clothingPlaceholder(defaultCat)
+          )}" value="${
             accessory ? escapeHtml(accessory.name) : ''
           }" required autocomplete="off" />
         </div>
         <div class="field">
           <label for="accessory-cat">Group</label>
           <select class="input" id="accessory-cat">
-            ${optionHtml(PackStore.listAccessoryCategories(), accessory?.category || 'Jewelry')}
+            ${optionHtml(PackStore.listAccessoryCategories(), defaultCat)}
           </select>
         </div>
+        ${photoFieldHtml('accessory-photo-input', { compact: true, copy: photoCopy })}
         <button type="submit" class="btn btn-primary btn-block">${
           isEdit ? 'Save changes' : 'Save to my list'
         }</button>
@@ -1344,22 +1683,32 @@
     );
     $('#accessory-name').focus();
     $('#accessory-name').select();
-    $('#accessory-form').onsubmit = (e) => {
+    $('#accessory-cat').onchange = () => {
+      const input = $('#accessory-name');
+      if (input && !isEdit) input.placeholder = clothingPlaceholder($('#accessory-cat').value);
+    };
+    bindPhotoField($('#accessory-photo-input-area'), photoState, 'accessory-photo-input', photoCopy);
+    $('#accessory-form').onsubmit = async (e) => {
       e.preventDefault();
       const name = $('#accessory-name').value.trim();
       const category = $('#accessory-cat').value;
       if (!name) return;
-      if (isEdit) {
-        const saved = PackStore.updateAccessory(accessory.id, { name, category });
+      try {
+        const photoId = await commitPhotoField(photoState);
+        if (isEdit) {
+          const saved = PackStore.updateAccessory(accessory.id, { name, category, photoId });
+          closeSheet();
+          toast(saved ? 'Updated' : 'That name is already on your list');
+          render();
+          return;
+        }
+        PackStore.addAccessory({ name, category, photoId });
         closeSheet();
-        toast(saved ? 'Updated' : 'That name is already on your list');
+        toast('Saved to your list');
         render();
-        return;
+      } catch {
+        toast('Could not save photo');
       }
-      PackStore.addAccessory({ name, category });
-      closeSheet();
-      toast('Saved to your list');
-      render();
     };
   }
 
@@ -1376,10 +1725,12 @@
     const tabs = PackStore.listClothingTabs(gender);
     let tab = route.params.tab;
     if (!tabs.includes(tab)) tab = tabs[0];
-    const items = PackStore.listClothingItems(gender, tab);
+    const sections = PackStore.listClothingSections(gender, tab);
+    const hasItems = sections.some((section) => section.items.length);
+    const hasSubs = sections.some((section) => section.label);
 
     setChrome({
-      title: 'Clothes',
+      title: 'Closet',
       eyebrow: 'Your pieces',
       showBack: false,
       action: {
@@ -1393,7 +1744,7 @@
       <div class="section">
         ${hintHtml(
           'clothes',
-          'This is your Tops, Bottoms, and everything else — the same lists you tap when packing a day. Add Levi’s to Bottoms, drop things you never pack.'
+          'This is your Tops, Bottoms, and everything else — the same lists you tap when packing a day. Drag the grip to put pieces in the order you like.'
         )}
         <div class="gender-toggle" role="tablist" aria-label="Clothing fit">
           <button type="button" class="gender-btn${gender === 'women' ? ' active' : ''}" data-gender="women">Women</button>
@@ -1435,22 +1786,58 @@
     });
 
     const list = $('#clothes-list');
-    if (!items.length) {
+    if (!hasItems && !hasSubs) {
       list.innerHTML = `
         <div class="empty" style="padding-top:8px">
           <h2 style="font-size:22px">Nothing in ${escapeHtml(tab)}</h2>
           <p>Add the ${escapeHtml(tab.toLowerCase())} you actually pack — a specific brand of jeans, the tee you always bring.</p>
         </div>
       `;
+    } else if (!hasSubs) {
+      list.appendChild(buildClothingStack(gender, tab, sections[0].items));
     } else {
-      const stack = document.createElement('div');
-      stack.className = 'stack';
-      items.forEach((name) => {
-        const custom = PackStore.isCustomClothingItem(gender, tab, name);
-        const row = document.createElement('div');
-        row.className = 'staple-row library-row';
-        row.innerHTML = `
+      sections.forEach((section) => {
+        const block = document.createElement('div');
+        block.className = 'clothes-subgroup';
+        block.innerHTML = `
+          <div class="section-head">
+            <h2 class="section-title">${escapeHtml(section.label)}</h2>
+            <button type="button" class="clothes-sub-add" data-sub="${escapeHtml(section.id)}">Add</button>
+          </div>
+        `;
+        if (section.items.length) {
+          block.appendChild(buildClothingStack(gender, tab, section.items, section.id));
+        } else {
+          const empty = document.createElement('p');
+          empty.className = 'clothes-sub-empty';
+          empty.textContent = `Nothing in ${section.label} yet.`;
+          block.appendChild(empty);
+        }
+        list.appendChild(block);
+      });
+      $$('.clothes-sub-add', list).forEach((btn) => {
+        btn.onclick = () => showClothingEditor({ gender, tab, sub: btn.dataset.sub });
+      });
+    }
+
+    $('#add-clothes-btn').onclick = () => showClothingEditor({ gender, tab });
+    if (PackStore.getPrefs().showPhotos) fillPhotoSlots(list);
+  }
+
+  function buildClothingStack(gender, tab, items, sub = '') {
+    const stack = document.createElement('div');
+    stack.className = 'stack';
+    items.forEach((name) => {
+      const custom = PackStore.isCustomClothingItem(gender, tab, name);
+      const row = document.createElement('div');
+      row.className = 'staple-row library-row sortable-row';
+      row.dataset.sortId = name;
+      row.innerHTML = `
+          <button type="button" class="drag-handle" aria-label="Reorder ${escapeHtml(name)}">
+            ${GRIP_SVG}
+          </button>
           <button type="button" class="library-edit" aria-label="Edit ${escapeHtml(name)}">
+            ${itemThumbHtml(PackStore.clothingPhotoId(gender, tab, name))}
             <span class="name">${escapeHtml(name)}</span>
             <span class="library-edit-hint${custom ? ' yours' : ''}">${custom ? 'Yours' : 'Edit'}</span>
           </button>
@@ -1458,25 +1845,50 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
           </button>
         `;
-        row.querySelector('.library-edit').onclick = () =>
-          showClothingEditor({ gender, tab, name });
-        row.querySelector('.del').onclick = () => {
-          if (!askConfirm(`Remove “${name}” from ${tab}?`)) return;
-          PackStore.removeClothingItem(gender, tab, name);
-          toast(`Removed from ${tab}`);
-          render();
-        };
-        stack.appendChild(row);
-      });
-      list.appendChild(stack);
-    }
-
-    $('#add-clothes-btn').onclick = () => showClothingEditor({ gender, tab });
+      row.querySelector('.library-edit').onclick = () =>
+        showClothingEditor({ gender, tab, name, sub: PackStore.clothingSubgroup(gender, tab, name) || sub });
+      row.querySelector('.del').onclick = async () => {
+        if (!askConfirm(`Remove “${name}” from ${tab}?`)) return;
+        const result = PackStore.removeClothingItem(gender, tab, name);
+        await deleteStoredPhoto(result.photoId);
+        toast(`Removed from ${tab}`);
+        render();
+      };
+      stack.appendChild(row);
+    });
+    bindRowSort(stack, (names) => {
+      PackStore.reorderClothingItems(gender, tab, names, sub || undefined);
+    });
+    return stack;
   }
 
-  function showClothingEditor({ gender, tab, name = '' } = {}) {
+  function showClothingEditor({ gender, tab, name = '', sub = '' } = {}) {
     const isEdit = !!name;
     const tabs = PackStore.listClothingTabs(gender);
+    const initialSub =
+      sub ||
+      (name ? PackStore.clothingSubgroup(gender, tab, name) : '') ||
+      PackStore.listClothingSubgroups(gender, tab)[0] ||
+      '';
+    const photoState = createPhotoFieldState(
+      name ? PackStore.clothingPhotoId(gender, tab, name) : null
+    );
+    const photoCopy = { title: 'Add a photo of this piece', hint: 'Tap to choose from your library' };
+
+    function subFieldHtml(currentTab, selected) {
+      const subs = PackStore.listClothingSubgroups(gender, currentTab);
+      if (!subs.length) return '';
+      const current = selected && subs.includes(selected) ? selected : subs[0];
+      return `
+        <div class="field" id="clothes-sub-field">
+          <label for="clothes-sub">Type</label>
+          <select class="input" id="clothes-sub">
+            ${optionHtml(subs, current)}
+          </select>
+        </div>
+      `;
+    }
+
     openSheet(
       isEdit ? `Edit ${tab} item` : `Add to ${tab}`,
       `
@@ -1491,7 +1903,7 @@
         <div class="field">
           <label for="clothes-name">Item</label>
           <input class="input" id="clothes-name" placeholder="${escapeHtml(
-            clothingPlaceholder(tab)
+            clothingPlaceholder(tab, initialSub)
           )}" value="${escapeHtml(name)}" required autocomplete="off" />
         </div>
         <div class="field">
@@ -1500,6 +1912,8 @@
             ${optionHtml(tabs, tab)}
           </select>
         </div>
+        ${subFieldHtml(tab, initialSub)}
+        ${photoFieldHtml('clothes-photo-input', { compact: true, copy: photoCopy })}
         <button type="submit" class="btn btn-primary btn-block">${
           isEdit ? 'Save changes' : `Save to ${escapeHtml(tab)}`
         }</button>
@@ -1508,29 +1922,66 @@
     );
     $('#clothes-name').focus();
     $('#clothes-name').select();
-    $('#clothes-cat').onchange = () => {
+    bindPhotoField($('#clothes-photo-input-area'), photoState, 'clothes-photo-input', photoCopy);
+
+    function syncDependentFields() {
       const nextTab = $('#clothes-cat').value;
+      const currentSub = $('#clothes-sub')?.value || initialSub;
+      const catField = $('#clothes-cat').closest('.field');
+      const existing = $('#clothes-sub-field');
+      if (existing) existing.remove();
+      const html = subFieldHtml(nextTab, currentSub);
+      if (html) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html.trim();
+        catField.after(tmp.firstElementChild);
+      }
       const submit = $('#clothes-form button[type="submit"]');
       if (!isEdit && submit) submit.textContent = `Save to ${nextTab}`;
-    };
-    $('#clothes-form').onsubmit = (e) => {
+      const input = $('#clothes-name');
+      if (input && !isEdit) {
+        input.placeholder = clothingPlaceholder(nextTab, $('#clothes-sub')?.value);
+      }
+    }
+
+    $('#clothes-cat').onchange = syncDependentFields;
+    $('#clothes-form').onsubmit = async (e) => {
       e.preventDefault();
       const nextName = $('#clothes-name').value.trim();
       const nextTab = $('#clothes-cat').value;
+      const nextSub = $('#clothes-sub')?.value || '';
       if (!nextName) return;
-      if (isEdit) {
-        const result = PackStore.renameClothingItem(gender, tab, name, nextName, nextTab);
+      try {
+        const photoId = await commitPhotoField(photoState);
+        if (isEdit) {
+          const result = PackStore.renameClothingItem(
+            gender,
+            tab,
+            name,
+            nextName,
+            nextTab,
+            nextSub || undefined
+          );
+          if (result.action !== 'exists') {
+            PackStore.setClothingPhoto(gender, result.tab || nextTab, result.name || nextName, photoId);
+          }
+          closeSheet();
+          if (result.action === 'exists') toast('That name is already on this list');
+          else toast('Updated');
+          navigate(clothesHash(result.tab || nextTab, gender));
+          return;
+        }
+        const result = PackStore.addClothingItem(gender, nextTab, nextName, nextSub || undefined);
+        if (result.action !== 'exists' && result.action !== 'empty' && result.action !== 'invalid') {
+          PackStore.setClothingPhoto(gender, nextTab, result.name || nextName, photoId);
+        }
         closeSheet();
-        if (result.action === 'exists') toast('That name is already on this list');
-        else toast('Updated');
-        navigate(clothesHash(result.tab || nextTab, gender));
-        return;
+        if (result.action === 'exists') toast('Already on this list');
+        else toast(result.sub ? `Saved to ${nextTab} · ${result.sub}` : `Saved to ${nextTab}`);
+        navigate(clothesHash(nextTab, gender));
+      } catch {
+        toast('Could not save photo');
       }
-      const result = PackStore.addClothingItem(gender, nextTab, nextName);
-      closeSheet();
-      if (result.action === 'exists') toast('Already on this list');
-      else toast(`Saved to ${nextTab}`);
-      navigate(clothesHash(nextTab, gender));
     };
   }
 
@@ -1544,7 +1995,7 @@
 
     setChrome({
       title: outfit.name,
-      eyebrow: 'Outfit',
+      eyebrow: 'Closet',
       showBack: true,
       action: {
         label: 'Edit',
@@ -1591,12 +2042,13 @@
       outfit.items.forEach((item) => {
         const chip = document.createElement('span');
         chip.className = 'chip';
-        chip.textContent = item;
+        chip.innerHTML = `${itemThumbHtml(PackStore.findItemPhotoId(item), 'chip-thumb')}${escapeHtml(item)}`;
         pills.appendChild(chip);
       });
     } else {
       pills.innerHTML = `<span class="chip">No items listed yet</span>`;
     }
+    if (PackStore.getPrefs().showPhotos) fillPhotoSlots(pills);
 
     if (outfit.photoId) {
       const url = await PackDB.getObjectUrl(outfit.photoId);
@@ -1651,9 +2103,8 @@
   function showOutfitEditor({ outfit = null, onSaved } = {}) {
     const isEdit = !!outfit;
     let items = outfit ? [...outfit.items] : [];
-    let pendingPhotoFile = null;
-    let photoId = outfit?.photoId || null;
-    let removePhoto = false;
+    const photoState = createPhotoFieldState(outfit?.photoId);
+    const photoCopy = { title: 'Add a photo later if you want', hint: 'Tap to choose from your library' };
     let draftName = outfit?.name || '';
 
     function renderItems(itemsEditor) {
@@ -1661,92 +2112,17 @@
       items.forEach((item, idx) => {
         const chip = document.createElement('div');
         chip.className = 'item-chip';
-        chip.innerHTML = `<span>${escapeHtml(item)}</span><button type="button" aria-label="Remove ${escapeHtml(item)}">×</button>`;
+        chip.innerHTML = `${itemThumbHtml(
+          PackStore.findItemPhotoId(item),
+          'chip-thumb'
+        )}<span>${escapeHtml(item)}</span><button type="button" aria-label="Remove ${escapeHtml(item)}">×</button>`;
         chip.querySelector('button').onclick = () => {
           items = items.filter((_, i) => i !== idx);
           renderItems(itemsEditor);
         };
         itemsEditor.appendChild(chip);
       });
-    }
-
-    const photoPlaceholder = `
-      <div class="photo-placeholder-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-      </div>
-      <p>Add a photo later if you want</p>
-      <span class="hint">Tap to choose from your library</span>
-      <input type="file" id="outfit-photo-input" accept="image/*" />
-    `;
-
-    function bindPhotoArea(photoArea) {
-      function resetPlaceholder() {
-        photoArea.classList.remove('has-photo');
-        photoArea.innerHTML = photoPlaceholder;
-        $('#outfit-photo-input', photoArea).onchange = (e) => {
-          if (e.target.files?.[0]) setPendingPhoto(e.target.files[0]);
-        };
-      }
-
-      function bindPhotoActions() {
-        const change = $('#change-photo', photoArea);
-        const clear = $('#clear-photo', photoArea);
-        if (change) {
-          change.onclick = () => {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = 'image/*';
-            input.onchange = () => {
-              if (input.files?.[0]) setPendingPhoto(input.files[0]);
-            };
-            input.click();
-          };
-        }
-        if (clear) {
-          clear.onclick = () => {
-            removePhoto = true;
-            pendingPhotoFile = null;
-            resetPlaceholder();
-          };
-        }
-      }
-
-      function setPhotoMarkup(src) {
-        photoArea.classList.add('has-photo');
-        photoArea.innerHTML = `
-          <img src="${src}" alt="" />
-          <div class="photo-actions">
-            <button type="button" class="btn btn-secondary" id="change-photo" style="min-height:40px;padding:8px 12px;font-size:13px">Change</button>
-            <button type="button" class="btn btn-danger" id="clear-photo" style="min-height:40px;padding:8px 12px;font-size:13px">Remove</button>
-          </div>
-        `;
-        bindPhotoActions();
-      }
-
-      function setPendingPhoto(file) {
-        pendingPhotoFile = file;
-        removePhoto = false;
-        setPhotoMarkup(URL.createObjectURL(file));
-      }
-
-      async function showExistingPhoto() {
-        if (!photoId || removePhoto) return;
-        const url = await PackDB.getObjectUrl(photoId);
-        if (!url) return;
-        setPhotoMarkup(url);
-      }
-
-      const photoInput = $('#outfit-photo-input', photoArea);
-      if (photoInput) {
-        photoInput.onchange = () => {
-          if (photoInput.files?.[0]) setPendingPhoto(photoInput.files[0]);
-        };
-      }
-
-      if (pendingPhotoFile) setPendingPhoto(pendingPhotoFile);
-      else if (photoId && !removePhoto) showExistingPhoto();
-
-      return { setPendingPhoto };
+      if (PackStore.getPrefs().showPhotos) fillPhotoSlots(itemsEditor);
     }
 
     function renderForm() {
@@ -1758,12 +2134,7 @@
             <input class="input" id="outfit-name" value="${escapeHtml(draftName)}" placeholder="Dinner — black dress + gold hoops" required autocomplete="off" />
           </div>
 
-          <div class="field">
-            <label>Photo <span style="font-weight:400;color:var(--ink-faint)">(optional)</span></label>
-            <div class="photo-area" id="photo-area" tabindex="0" role="button" aria-label="Add photo">
-              ${photoPlaceholder}
-            </div>
-          </div>
+          ${photoFieldHtml('outfit-photo-input', { copy: photoCopy })}
 
           <div class="field">
             <label for="item-input">Pieces & accessories</label>
@@ -1780,10 +2151,9 @@
         </form>
       `;
 
-      const photoArea = $('#photo-area');
       const itemsEditor = $('#items-editor');
       const itemInput = $('#item-input');
-      bindPhotoArea(photoArea);
+      bindPhotoField($('#outfit-photo-input-area'), photoState, 'outfit-photo-input', photoCopy);
       renderItems(itemsEditor);
 
       function addItem() {
@@ -1815,22 +2185,8 @@
         const name = $('#outfit-name').value.trim();
         if (!name) return;
 
-        let nextPhotoId = photoId;
-
         try {
-          if (removePhoto && photoId) {
-            PackDB.revokeObjectUrl(photoId);
-            await PackDB.deletePhoto(photoId);
-            nextPhotoId = null;
-          }
-
-          if (pendingPhotoFile) {
-            const blob = await PackDB.compressImage(pendingPhotoFile);
-            nextPhotoId = nextPhotoId || PackStore.uid();
-            await PackDB.putPhoto(nextPhotoId, blob);
-            PackDB.revokeObjectUrl(nextPhotoId);
-          }
-
+          const nextPhotoId = await commitPhotoField(photoState);
           let saved;
           if (isEdit) {
             saved = PackStore.updateOutfit(outfit.id, {
@@ -1875,7 +2231,7 @@
       showBack: false,
       action: {
         label: 'Add staple',
-        onClick: () => showAddStaple(),
+        onClick: () => showStapleEditor(),
       },
     });
 
@@ -1915,15 +2271,22 @@
         const stack = $('.stack', section);
         items.forEach((s) => {
           const row = document.createElement('div');
-          row.className = 'staple-row';
+          row.className = 'staple-row library-row';
           row.innerHTML = `
-            <span class="name">${escapeHtml(s.name)}</span>
+            <button type="button" class="library-edit" aria-label="Edit ${escapeHtml(s.name)}">
+              ${itemThumbHtml(s.photoId)}
+              <span class="name">${escapeHtml(s.name)}</span>
+              <span class="library-edit-hint">Edit</span>
+            </button>
             <button type="button" class="del" aria-label="Delete ${escapeHtml(s.name)}">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
             </button>
           `;
-          row.querySelector('.del').onclick = () => {
-            PackStore.deleteStaple(s.id);
+          row.querySelector('.library-edit').onclick = () => showStapleEditor(s);
+          row.querySelector('.del').onclick = async () => {
+            if (!askConfirm(`Remove “${s.name}” from staples?`)) return;
+            const removed = PackStore.deleteStaple(s.id);
+            await deleteStoredPhoto(removed?.photoId);
             toast('Staple removed');
             render();
           };
@@ -1933,38 +2296,60 @@
       });
     }
 
-    $('#add-staple-btn').onclick = () => showAddStaple();
+    $('#add-staple-btn').onclick = () => showStapleEditor();
+    if (PackStore.getPrefs().showPhotos) fillPhotoSlots(list);
   }
 
-  function showAddStaple() {
+  function showStapleEditor(staple = null) {
+    const isEdit = !!staple;
+    const photoState = createPhotoFieldState(staple?.photoId);
+    const photoCopy = { title: 'Add a photo of this item', hint: 'Tap to choose from your library' };
     openSheet(
-      'Add staple',
+      isEdit ? 'Edit staple' : 'Add staple',
       `
       <form id="staple-form">
         <div class="field">
           <label for="staple-name">Item</label>
-          <input class="input" id="staple-name" placeholder="Lip balm" required autocomplete="off" />
+          <input class="input" id="staple-name" placeholder="Lip balm" value="${
+            staple ? escapeHtml(staple.name) : ''
+          }" required autocomplete="off" />
         </div>
         <div class="field">
           <label for="staple-cat">Category</label>
           <select class="input" id="staple-cat">
-            ${optionHtml(PackStore.listStapleCategories(), 'Other')}
+            ${optionHtml(PackStore.listStapleCategories(), staple?.category || 'Other')}
           </select>
         </div>
-        <button type="submit" class="btn btn-primary btn-block">Add to staples</button>
+        ${photoFieldHtml('staple-photo-input', { compact: true, copy: photoCopy })}
+        <button type="submit" class="btn btn-primary btn-block">${
+          isEdit ? 'Save changes' : 'Add to staples'
+        }</button>
       </form>
     `
     );
     $('#staple-name').focus();
-    $('#staple-form').onsubmit = (e) => {
+    if (!isEdit) $('#staple-name').select();
+    bindPhotoField($('#staple-photo-input-area'), photoState, 'staple-photo-input', photoCopy);
+    $('#staple-form').onsubmit = async (e) => {
       e.preventDefault();
       const name = $('#staple-name').value.trim();
       const category = $('#staple-cat').value;
       if (!name) return;
-      PackStore.addStaple({ name, category });
-      closeSheet();
-      toast('Staple added');
-      render();
+      try {
+        const photoId = await commitPhotoField(photoState);
+        if (isEdit) {
+          PackStore.updateStaple(staple.id, { name, category, photoId });
+          closeSheet();
+          toast('Updated');
+        } else {
+          PackStore.addStaple({ name, category, photoId });
+          closeSheet();
+          toast('Staple added');
+        }
+        render();
+      } catch {
+        toast('Could not save photo');
+      }
     };
   }
 
@@ -2030,21 +2415,21 @@
             ], prefs.clothingGender)}
             ${settingSelect('startingTab', 'Open app to', 'First screen after launch.', [
               ['trips', 'Trips'],
-              ['outfits', 'Outfits'],
+              ['outfits', 'Closet'],
               ['staples', 'Staples'],
               ['settings', 'Settings'],
             ], prefs.startingTab)}
             ${settingToggle('hideEmptyDays', 'Hide empty days', 'Skip days with no outfits or extras on the packing list.', prefs.hideEmptyDays)}
             ${settingToggle('showOutfitHeadings', 'Show outfit names', 'Label pieces under each look on the packing list.', prefs.showOutfitHeadings)}
             ${settingToggle('hidePackedItems', 'Hide packed items', 'Once checked, an item drops off the list.', prefs.hidePackedItems)}
-            ${settingToggle('showPhotos', 'Show outfit photos', 'Thumbnails in lists and pickers.', prefs.showPhotos)}
+            ${settingToggle('showPhotos', 'Show photos', 'Thumbnails for outfits, clothes, accessories, and staples.', prefs.showPhotos)}
             ${settingToggle('confirmDeletes', 'Confirm deletions', 'Ask before deleting trips, outfits, or resetting checks.', prefs.confirmDeletes)}
           </div>`,
         },
         {
           id: 'library',
           title: 'Library',
-          keywords: 'staple accessory category restore gloves bank jewelry necklace earrings bracelet chunky gold customize pieces clothes jeans tops bottoms brands levi',
+          keywords: 'staple accessory category restore gloves bank jewelry necklace earrings bracelet chunky gold customize pieces clothes jeans tops bottoms brands levi shoes sneakers bags',
           html: () => {
             const clothes = PackStore.clothingCatalogSummary();
             const clothesNote =
@@ -2053,9 +2438,9 @@
                 : 'Add Levi’s to Bottoms, drop things you never pack.';
             return `<div class="settings-list">
             ${settingNav('your-clothes', 'Your clothes', clothesNote)}
-            ${settingNav('your-accessories', 'Your jewelry & accessories', 'Add your own pieces — chunky gold necklace, pearl earrings, bags.')}
+            ${settingNav('your-accessories', 'Your jewelry & accessories', 'Add your own pieces — white sneakers, chunky gold necklace, bags.')}
             ${settingNav('staple-cats', 'Staple categories', prefs.stapleCategories.join(', '))}
-            ${settingNav('accessory-cats', 'Accessory groups', 'Folders like Jewelry and Bags — not individual pieces.')}
+            ${settingNav('accessory-cats', 'Accessory groups', 'Folders like Jewelry, Bags, and Shoes — not individual pieces.')}
             ${settingAction('restore-clothes', 'Restore hidden clothes', 'Puts back starter Tops, Bottoms, and the rest you deleted. Keeps your own items.')}
             ${settingAction('restore-staples', 'Restore missing staples', 'Adds default items you deleted, like Gloves.')}
             ${settingAction('restore-accessories', 'Restore starter accessories', 'Puts back the generic sample items if you deleted them.')}
@@ -2250,7 +2635,7 @@
         <p class="hint" style="margin:0 0 12px">${
           isStaples
             ? 'These show up when you add staples. Existing items keep their current category if you remove one here.'
-            : 'These are folders (Jewelry, Bags) — not individual pieces. Add “chunky gold necklace” under Your jewelry & accessories, not here.'
+            : 'These are folders (Jewelry, Bags, Shoes) — not individual pieces. Add “white sneakers” under Your jewelry & accessories, not here.'
         }</p>
         <div class="stack" id="cat-manage-list"></div>
         <form id="cat-manage-form" style="margin-top:16px">
@@ -2371,6 +2756,7 @@
 
   // ——— Main render ———
   async function render() {
+    if (activeSortAbort) activeSortAbort();
     route = parseHash();
     syncTabs();
     closeSheet();
