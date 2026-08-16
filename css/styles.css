@@ -1664,6 +1664,14 @@ body.sorting {
   margin-bottom: 22px;
 }
 
+.section > .clothes-subgroup:first-of-type {
+  margin-top: 2px;
+}
+
+.section > .clothes-subgroup:last-child {
+  margin-bottom: 0;
+}
+
 .clothes-subgroup .section-head {
   margin-bottom: 8px;
 }

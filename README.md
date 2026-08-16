@@ -9,7 +9,7 @@ Built as an installable **Progressive Web App** for iPhone (and any modern brows
 - **Closet** — outfits, clothes, and accessories under one tab; optional photo on each piece
 - **Outfit library** — name looks, list pieces from clothing categories or free text, optional photo
 - **Accessory bank** — save earrings, bags, shoes, and belts once and tap them onto outfits or days
-- **Categories** — pick Tops, Layers (Sweaters, Jackets, Coats), Bottoms, Dresses / Suits instead of typing every piece; drag to reorder each list
+- **Categories** — pick Tops (tees, blouses, sweatshirts), Layers (sweaters, blazers, jackets, coats, vests), Bottoms (jeans, pants, shorts, leggings, skirts), Dresses / Suits, and Shoes (sandals, sneakers, flats, heels, boots) instead of typing every piece; drag to reorder each list
 - **Staples** — toiletries, basics, tech, documents start on every trip; remove or add extras **for that trip only**
 - **Trips** — multi-day plans with multiple outfits **and extra items** per day
 - **Packing checklist** — outfits expand to individual pieces; tap a look to pack every piece; repeats show on later days but check off once everywhere

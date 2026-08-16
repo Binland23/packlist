@@ -88,14 +88,29 @@
   }
 
   function clothingPlaceholder(tab, sub) {
-    if (tab === 'Layers') {
-      const layers = {
-        Sweaters: 'e.g. Cream cardigan',
-        Jackets: 'e.g. Navy blazer',
-        Coats: 'e.g. Wool coat',
-      };
-      return layers[sub] || 'e.g. Navy blazer';
-    }
+    const bySub = {
+      'Tees short sleeve': 'e.g. White linen tee',
+      'Tees long sleeve': 'e.g. Black long-sleeve tee',
+      'Blouses short sleeve': 'e.g. Silk short-sleeve blouse',
+      'Blouses long sleeve': 'e.g. White button-down',
+      Sweatshirts: 'e.g. Gray crewneck',
+      Sweaters: 'e.g. Cream cardigan',
+      Blazers: 'e.g. Navy blazer',
+      Jackets: 'e.g. Denim jacket',
+      Coats: 'e.g. Wool coat',
+      Vests: 'e.g. Quilted vest',
+      Jeans: 'e.g. Levi’s 501s',
+      Pants: 'e.g. Black trousers',
+      Shorts: 'e.g. Navy shorts',
+      Leggings: 'e.g. Black leggings',
+      Skirts: 'e.g. Midi skirt',
+      Sandals: 'e.g. Leather sandals',
+      Sneakers: 'e.g. White sneakers',
+      Flats: 'e.g. Ballet flats',
+      Heels: 'e.g. Black heels',
+      Boots: 'e.g. Ankle boots',
+    };
+    if (sub && bySub[sub]) return bySub[sub];
     const map = {
       Tops: 'e.g. White linen tee',
       Layers: 'e.g. Navy blazer',
@@ -596,10 +611,9 @@
           if (!byCat.has(cat)) byCat.set(cat, []);
           byCat.get(cat).push(a);
         });
-        const suggestionGroups = ClothingCatalog.ACCESSORY_TABS;
         const catOrder = PackStore.listAccessoryCategories();
         const extraCats = [
-          ...Object.keys(suggestionGroups),
+          ...Object.keys(ClothingCatalog.ACCESSORY_TABS),
           ...byCat.keys(),
         ].filter((c) => !catOrder.includes(c));
         const allCats = [...catOrder, ...extraCats];
@@ -610,13 +624,32 @@
 
         allCats.forEach((cat) => {
           const list = byCat.get(cat) || [];
-          const suggestions = suggestionGroups[cat] || [];
-          if (!list.length && !suggestions.length) return;
+          const sections = PackStore.listAccessorySections(cat);
+          const hasSubs = sections.some((section) => section.label);
+          const suggestionsBySub = ClothingCatalog.accessoryPillsBySubgroup(cat);
+          const flatSuggestions = ClothingCatalog.accessoryPillsFor(cat);
+          if (!list.length && !flatSuggestions.length) return;
           pillsInner += `<p class="cat-group-label">${escapeHtml(cat)}</p>`;
-          if (list.length) {
+          if (hasSubs) {
+            sections.forEach((section) => {
+              const saved = section.items;
+              const suggestions = suggestionsBySub?.[section.id] || [];
+              if (!saved.length && !suggestions.length) return;
+              pillsInner += `<p class="cat-group-label subtle">${escapeHtml(section.label)}</p>`;
+              if (saved.length) {
+                pillsInner += `<div class="cat-pills">${saved
+                  .map((a) => pillButton(a.name, null, a.photoId))
+                  .join('')}</div>`;
+              } else {
+                pillsInner += `<div class="cat-pills">${suggestions
+                  .map((n) => pillButton(n, null, PackStore.findItemPhotoId(n)))
+                  .join('')}</div>`;
+              }
+            });
+          } else if (list.length) {
             pillsInner += `<div class="cat-pills">${list.map((a) => pillButton(a.name, null, a.photoId)).join('')}</div>`;
           } else {
-            pillsInner += `<p class="cat-group-label subtle">Suggestions</p><div class="cat-pills">${suggestions
+            pillsInner += `<p class="cat-group-label subtle">Suggestions</p><div class="cat-pills">${flatSuggestions
               .map((n) => pillButton(n, null, PackStore.findItemPhotoId(n)))
               .join('')}</div>`;
           }
@@ -703,6 +736,10 @@
                       ${optionHtml(PackStore.listAccessoryCategories(), 'Jewelry')}
                     </select>
                   </div>
+                  <div class="field" id="cat-custom-acc-sub-field" style="margin-top:10px;display:none">
+                    <label for="cat-custom-acc-sub">Type</label>
+                    <select class="input" id="cat-custom-acc-sub"></select>
+                  </div>
                   <label class="check-inline">
                     <input type="checkbox" id="cat-save-bank" checked />
                     Save to my jewelry &amp; accessories
@@ -774,13 +811,45 @@
       }
 
       const customInput = $('#cat-custom-input', container);
+      const syncAccessorySubField = () => {
+        const catSelect = $('#cat-custom-cat', container);
+        const field = $('#cat-custom-acc-sub-field', container);
+        const select = $('#cat-custom-acc-sub', container);
+        if (!catSelect || !field || !select) return;
+        const subs = PackStore.listAccessorySubgroups(catSelect.value);
+        if (!subs.length) {
+          field.style.display = 'none';
+          select.innerHTML = '';
+          if (!customInput.value) customInput.placeholder = clothingPlaceholder(catSelect.value);
+          return;
+        }
+        field.style.display = '';
+        select.innerHTML = optionHtml(subs, select.value && subs.includes(select.value) ? select.value : subs[0]);
+        if (!customInput.value) customInput.placeholder = clothingPlaceholder(catSelect.value, select.value);
+      };
+      const accCat = $('#cat-custom-cat', container);
+      if (accCat) {
+        accCat.onchange = syncAccessorySubField;
+        const accSub = $('#cat-custom-acc-sub', container);
+        if (accSub) accSub.onchange = () => syncAccessorySubField();
+        syncAccessorySubField();
+      }
+      const clothingSubSelect = $('#cat-custom-sub', container);
+      if (clothingSubSelect) {
+        clothingSubSelect.onchange = () => {
+          if (!customInput.value) {
+            customInput.placeholder = clothingPlaceholder(tab, clothingSubSelect.value);
+          }
+        };
+      }
       const addCustom = () => {
         const name = customInput.value.trim();
         if (!name) return;
         if (tab === 'Accessories') {
           const saveBank = $('#cat-save-bank', container)?.checked;
           const category = $('#cat-custom-cat', container)?.value || 'Jewelry';
-          if (saveBank) PackStore.addAccessory({ name, category });
+          const sub = $('#cat-custom-acc-sub', container)?.value || '';
+          if (saveBank) PackStore.addAccessory({ name, category, sub: sub || undefined });
         } else if ($('#cat-save-list', container)?.checked) {
           const sub = $('#cat-custom-sub', container)?.value || '';
           PackStore.addClothingItem(gender, tab, name, sub || undefined);
@@ -1660,58 +1729,89 @@
     const order = PackStore.listAccessoryCategories().concat(
       [...groups.keys()].filter((c) => !PackStore.listAccessoryCategories().includes(c))
     );
+
+    function accessoryStack(items) {
+      const stack = document.createElement('div');
+      stack.className = 'stack';
+      items.forEach((a) => {
+        const row = document.createElement('div');
+        row.className = 'staple-row library-row';
+        row.innerHTML = `
+          <button type="button" class="library-edit" aria-label="Edit ${escapeHtml(a.name)}">
+            ${itemThumbHtml(a.photoId)}
+            <span class="name">${escapeHtml(a.name)}</span>
+            <span class="library-edit-hint">Edit</span>
+          </button>
+          <button type="button" class="del" aria-label="Delete ${escapeHtml(a.name)}">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+          </button>
+        `;
+        row.querySelector('.library-edit').onclick = () => showAccessoryEditor(a);
+        row.querySelector('.del').onclick = async () => {
+          if (!askConfirm(`Remove “${a.name}” from your list?`)) return;
+          const removed = PackStore.deleteAccessory(a.id);
+          await deleteStoredPhoto(removed?.photoId);
+          toast('Accessory removed');
+          render();
+        };
+        stack.appendChild(row);
+      });
+      return stack;
+    }
+
     order.forEach((cat) => {
       const items = groups.get(cat) || [];
-      if (!items.length && cat !== 'Shoes' && accessories.length) return;
+      const sections = PackStore.listAccessorySections(cat);
+      const hasSubs = sections.some((section) => section.label);
+      if (!items.length && !hasSubs && accessories.length) return;
       const section = document.createElement('div');
       section.className = 'section';
       section.style.marginBottom = '20px';
       section.innerHTML = `
           <div class="section-head">
             <h2 class="section-title">${escapeHtml(cat)}</h2>
-            <button type="button" class="clothes-sub-add" data-cat="${escapeHtml(cat)}">Add</button>
+            ${
+              hasSubs
+                ? ''
+                : `<button type="button" class="clothes-sub-add" data-cat="${escapeHtml(cat)}">Add</button>`
+            }
           </div>
         `;
-      if (!items.length) {
+      if (hasSubs) {
+        sections.forEach((sub) => {
+          const block = document.createElement('div');
+          block.className = 'clothes-subgroup';
+          block.innerHTML = `
+            <div class="section-head">
+              <h2 class="section-title">${escapeHtml(sub.label)}</h2>
+              <button type="button" class="clothes-sub-add" data-cat="${escapeHtml(cat)}" data-sub="${escapeHtml(
+            sub.id
+          )}">Add</button>
+            </div>
+          `;
+          if (sub.items.length) {
+            block.appendChild(accessoryStack(sub.items));
+          } else {
+            const empty = document.createElement('p');
+            empty.className = 'clothes-sub-empty';
+            empty.textContent = `Nothing in ${sub.label} yet.`;
+            block.appendChild(empty);
+          }
+          section.appendChild(block);
+        });
+      } else if (!items.length) {
         const empty = document.createElement('p');
         empty.className = 'clothes-sub-empty';
-        empty.textContent =
-          cat === 'Shoes'
-            ? 'Nothing here yet. Add the pairs you actually pack.'
-            : 'Nothing here yet. Add the pieces you actually pack.';
+        empty.textContent = 'Nothing here yet. Add the pieces you actually pack.';
         section.appendChild(empty);
       } else {
-        const stack = document.createElement('div');
-        stack.className = 'stack';
-        items.forEach((a) => {
-          const row = document.createElement('div');
-          row.className = 'staple-row library-row';
-          row.innerHTML = `
-            <button type="button" class="library-edit" aria-label="Edit ${escapeHtml(a.name)}">
-              ${itemThumbHtml(a.photoId)}
-              <span class="name">${escapeHtml(a.name)}</span>
-              <span class="library-edit-hint">Edit</span>
-            </button>
-            <button type="button" class="del" aria-label="Delete ${escapeHtml(a.name)}">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
-            </button>
-          `;
-          row.querySelector('.library-edit').onclick = () => showAccessoryEditor(a);
-          row.querySelector('.del').onclick = async () => {
-            if (!askConfirm(`Remove “${a.name}” from your list?`)) return;
-            const removed = PackStore.deleteAccessory(a.id);
-            await deleteStoredPhoto(removed?.photoId);
-            toast('Accessory removed');
-            render();
-          };
-          stack.appendChild(row);
-        });
-        section.appendChild(stack);
+        section.appendChild(accessoryStack(items));
       }
       list.appendChild(section);
     });
     $$('[data-cat]', list).forEach((btn) => {
-      btn.onclick = () => showAccessoryEditor(null, { category: btn.dataset.cat });
+      btn.onclick = () =>
+        showAccessoryEditor(null, { category: btn.dataset.cat, sub: btn.dataset.sub || '' });
     });
 
     $('#add-accessory-btn').onclick = () => showAccessoryEditor();
@@ -1721,8 +1821,28 @@
   function showAccessoryEditor(accessory = null, preset = {}) {
     const isEdit = !!accessory;
     const defaultCat = accessory?.category || preset.category || 'Jewelry';
+    const defaultSub =
+      preset.sub ||
+      (accessory ? PackStore.accessorySubgroup(accessory) : '') ||
+      PackStore.listAccessorySubgroups(defaultCat)[0] ||
+      '';
     const photoState = createPhotoFieldState(accessory?.photoId);
     const photoCopy = { title: 'Add a photo of this piece', hint: 'Tap to choose from your library' };
+
+    function subFieldHtml(category, selected) {
+      const subs = PackStore.listAccessorySubgroups(category);
+      if (!subs.length) return '';
+      const current = selected && subs.includes(selected) ? selected : subs[0];
+      return `
+        <div class="field" id="accessory-sub-field">
+          <label for="accessory-sub">Type</label>
+          <select class="input" id="accessory-sub">
+            ${optionHtml(subs, current)}
+          </select>
+        </div>
+      `;
+    }
+
     openSheet(
       isEdit ? 'Edit piece' : 'Add your piece',
       `
@@ -1735,7 +1855,7 @@
         <div class="field">
           <label for="accessory-name">Item</label>
           <input class="input" id="accessory-name" placeholder="${escapeHtml(
-            clothingPlaceholder(defaultCat)
+            clothingPlaceholder(defaultCat, defaultSub)
           )}" value="${
             accessory ? escapeHtml(accessory.name) : ''
           }" required autocomplete="off" />
@@ -1746,6 +1866,7 @@
             ${optionHtml(PackStore.listAccessoryCategories(), defaultCat)}
           </select>
         </div>
+        ${subFieldHtml(defaultCat, defaultSub)}
         ${photoFieldHtml('accessory-photo-input', { compact: true, copy: photoCopy })}
         <button type="submit" class="btn btn-primary btn-block">${
           isEdit ? 'Save changes' : 'Save to my list'
@@ -1755,26 +1876,53 @@
     );
     $('#accessory-name').focus();
     $('#accessory-name').select();
-    $('#accessory-cat').onchange = () => {
+
+    function syncAccessoryFields() {
+      const nextCat = $('#accessory-cat').value;
+      const currentSub = $('#accessory-sub')?.value || defaultSub;
+      const catField = $('#accessory-cat').closest('.field');
+      const existing = $('#accessory-sub-field');
+      if (existing) existing.remove();
+      const html = subFieldHtml(nextCat, currentSub);
+      if (html) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html.trim();
+        catField.after(tmp.firstElementChild);
+        $('#accessory-sub').onchange = () => {
+          const input = $('#accessory-name');
+          if (input && !isEdit) input.placeholder = clothingPlaceholder(nextCat, $('#accessory-sub').value);
+        };
+      }
       const input = $('#accessory-name');
-      if (input && !isEdit) input.placeholder = clothingPlaceholder($('#accessory-cat').value);
-    };
+      if (input && !isEdit) input.placeholder = clothingPlaceholder(nextCat, $('#accessory-sub')?.value);
+    }
+
+    $('#accessory-cat').onchange = syncAccessoryFields;
+    if ($('#accessory-sub')) {
+      $('#accessory-sub').onchange = () => {
+        const input = $('#accessory-name');
+        if (input && !isEdit) {
+          input.placeholder = clothingPlaceholder($('#accessory-cat').value, $('#accessory-sub').value);
+        }
+      };
+    }
     bindPhotoField($('#accessory-photo-input-area'), photoState, 'accessory-photo-input', photoCopy);
     $('#accessory-form').onsubmit = async (e) => {
       e.preventDefault();
       const name = $('#accessory-name').value.trim();
       const category = $('#accessory-cat').value;
+      const sub = $('#accessory-sub')?.value || '';
       if (!name) return;
       try {
         const photoId = await commitPhotoField(photoState);
         if (isEdit) {
-          const saved = PackStore.updateAccessory(accessory.id, { name, category, photoId });
+          const saved = PackStore.updateAccessory(accessory.id, { name, category, photoId, sub: sub || null });
           closeSheet();
           toast(saved ? 'Updated' : 'That name is already on your list');
           render();
           return;
         }
-        PackStore.addAccessory({ name, category, photoId });
+        PackStore.addAccessory({ name, category, photoId, sub: sub || undefined });
         closeSheet();
         toast('Saved to your list');
         render();
