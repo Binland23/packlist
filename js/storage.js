@@ -1411,12 +1411,24 @@ const PackStore = (() => {
   function removeTripStaple(tripId, stapleId, source) {
     const trip = getTrip(tripId);
     if (!trip) return null;
+    const packedKey = source === 'trip' ? `trip-staple:${stapleId}` : `staple:${stapleId}`;
+    const nextPacked = { ...(trip.packed || {}) };
+    delete nextPacked[packedKey];
+
     if (source === 'trip') {
       return updateTrip(tripId, {
         extraStaples: (trip.extraStaples || []).filter((s) => s.id !== stapleId),
+        packed: nextPacked,
       });
     }
-    return excludeStapleFromTrip(tripId, stapleId);
+
+    if ((trip.excludedStapleIds || []).includes(stapleId)) {
+      return updateTrip(tripId, { packed: nextPacked });
+    }
+    return updateTrip(tripId, {
+      excludedStapleIds: [...(trip.excludedStapleIds || []), stapleId],
+      packed: nextPacked,
+    });
   }
 
   function setPackedKeys(tripId, keys, packed) {
@@ -1552,10 +1564,12 @@ const PackStore = (() => {
       remember(key, staple.name, 'staple');
       if (!staplesByCat.has(cat)) staplesByCat.set(cat, []);
       staplesByCat.get(cat).push({
+        id: staple.id,
         key,
         name: staple.name,
         note: type === 'trip' ? 'This trip only' : null,
         type: 'staple',
+        source: type === 'trip' ? 'trip' : 'global',
         category: cat,
         packed: !!packed[key],
         photoId: staple.photoId || findItemPhotoId(staple.name),

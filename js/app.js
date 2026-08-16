@@ -1297,7 +1297,7 @@
         <button type="button" class="segment" data-view="plan">Plan days</button>
         <button type="button" class="segment active" data-view="pack">Pack</button>
       </div>
-      ${hintHtml('pack', 'Each piece has its own checkbox. Tap an outfit name to pack the whole look. If you wear it again later, checking it once checks it on every day.')}
+      ${hintHtml('pack', 'Each piece has its own checkbox. Tap × on Basics or other staples to skip them for this trip only — your usual list stays intact.')}
       <div class="pack-summary">
         <div>
           <p class="label">Packed</p>
@@ -1311,7 +1311,14 @@
               <p class="empty-kicker">Nothing to pack yet</p>
               <h2>Add outfits or items to your days</h2>
               <p>Pick outfits, add extras for a single day, or restore staples. Each piece gets its own checkbox — repeats stay in sync.</p>
-              <button type="button" class="btn btn-primary" id="back-to-plan">Plan days</button>
+              <div class="btn-row" style="justify-content:center;flex-wrap:wrap;gap:10px">
+                <button type="button" class="btn btn-primary" id="back-to-plan">Plan days</button>
+                ${
+                  PackStore.getTripStaples(trip.id).hidden.length
+                    ? `<button type="button" class="btn btn-secondary" id="pack-restore-staples-empty">Restore hidden staples</button>`
+                    : ''
+                }
+              </div>
             </div>`
           : `<div class="check-list" id="pack-list"></div>
              <div class="btn-row" style="margin-top:16px">
@@ -1326,6 +1333,9 @@
 
     const backPlan = $('#back-to-plan');
     if (backPlan) backPlan.onclick = () => navigate(`trip/${trip.id}?view=plan`);
+
+    const restoreEmpty = $('#pack-restore-staples-empty');
+    if (restoreEmpty) restoreEmpty.onclick = () => showTripStaplesSheet(trip);
 
     bindHints();
 
@@ -1419,8 +1429,21 @@
       const done = group.items.filter((i) => i.packed).length;
       label.innerHTML = `${escapeHtml(group.label)} <span class="check-count" style="float:right">${done}/${group.items.length}</span>`;
       list.appendChild(label);
-      items.forEach((item) => appendCheckItem(list, trip, item, prefs));
+      items.forEach((item) => appendCheckItem(list, trip, item, prefs, { removableStaple: true }));
     });
+
+    const hiddenStaples = PackStore.getTripStaples(trip.id).hidden;
+    if (hiddenStaples.length) {
+      const restoreRow = document.createElement('div');
+      restoreRow.className = 'btn-row pack-restore-staples';
+      restoreRow.innerHTML = `<button type="button" class="btn btn-secondary" id="pack-restore-staples">Restore ${plural(
+        hiddenStaples.length,
+        'hidden staple',
+        'hidden staples'
+      )}</button>`;
+      list.appendChild(restoreRow);
+      $('#pack-restore-staples', restoreRow).onclick = () => showTripStaplesSheet(trip);
+    }
 
     if (PackStore.getPrefs().showPhotos) await fillPhotoSlots(list);
   }
@@ -1489,7 +1512,13 @@
     list.appendChild(btn);
   }
 
-  function appendCheckItem(list, trip, item, prefs = PackStore.getPrefs(), { nested = false } = {}) {
+  function appendCheckItem(
+    list,
+    trip,
+    item,
+    prefs = PackStore.getPrefs(),
+    { nested = false, removableStaple = false } = {}
+  ) {
     if (prefs.hidePackedItems && item.packed) return;
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -1514,7 +1543,27 @@
       PackStore.setPacked(trip.id, item.key, !item.packed);
       refreshPackView(trip.id);
     };
-    list.appendChild(btn);
+
+    if (!removableStaple || !item.id) {
+      list.appendChild(btn);
+      return;
+    }
+
+    const row = document.createElement('div');
+    row.className = 'pack-check-row';
+    row.appendChild(btn);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'pack-remove-staple';
+    del.setAttribute('aria-label', `Remove ${item.name} from this trip`);
+    del.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>`;
+    del.onclick = () => {
+      PackStore.removeTripStaple(trip.id, item.id, item.source || 'global');
+      toast('Removed from this trip');
+      refreshPackView(trip.id);
+    };
+    row.appendChild(del);
+    list.appendChild(row);
   }
 
   function showTripOptions(trip) {
