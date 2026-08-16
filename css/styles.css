@@ -697,7 +697,7 @@ img {
   max-width: 100%;
 }
 
-.item-chip span {
+.item-chip span:not(.item-thumb) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -797,6 +797,49 @@ img {
 .photo-area .hint {
   font-size: 12px;
   color: var(--ink-faint);
+}
+
+.photo-area.item-photo {
+  min-height: 120px;
+}
+
+.photo-area.item-photo img {
+  height: 140px;
+}
+
+.item-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-soft);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.item-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.item-thumb.cat-pill-thumb,
+.item-thumb.chip-thumb,
+.item-thumb.pack-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.cat-pill .item-thumb {
+  margin-left: -6px;
+}
+
+html[data-density="compact"] .item-thumb {
+  width: 32px;
+  height: 32px;
 }
 
 /* ——— Checkboxes / packing list ——— */

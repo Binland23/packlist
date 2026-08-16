@@ -361,7 +361,7 @@ const PackStore = (() => {
   }
 
   function emptyClothingPatch() {
-    return { extras: [], hidden: [], order: [], extraSubs: {}, orderBySub: {} };
+    return { extras: [], hidden: [], order: [], extraSubs: {}, orderBySub: {}, photos: {} };
   }
 
   function normalizeSubMap(raw) {
@@ -388,6 +388,18 @@ const PackStore = (() => {
     return out;
   }
 
+  function normalizePhotoMap(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const out = {};
+    Object.keys(raw).forEach((name) => {
+      const item = String(name || '').trim();
+      const id = String(raw[name] || '').trim();
+      if (!item || !id) return;
+      out[item] = id;
+    });
+    return out;
+  }
+
   function normalizeClothingPatch(raw) {
     if (!raw || typeof raw !== 'object') return emptyClothingPatch();
     return {
@@ -396,6 +408,7 @@ const PackStore = (() => {
       order: uniqueItemNames(raw.order),
       extraSubs: normalizeSubMap(raw.extraSubs),
       orderBySub: normalizeOrderBySub(raw.orderBySub),
+      photos: normalizePhotoMap(raw.photos),
     };
   }
 
@@ -405,7 +418,8 @@ const PackStore = (() => {
       !patch.hidden.length &&
       !patch.order.length &&
       !Object.keys(patch.extraSubs || {}).length &&
-      !Object.keys(patch.orderBySub || {}).length
+      !Object.keys(patch.orderBySub || {}).length &&
+      !Object.keys(patch.photos || {}).length
     );
   }
 
@@ -464,6 +478,65 @@ const PackStore = (() => {
     });
     if (sub) next[normalizeName(name)] = sub;
     patch.extraSubs = next;
+  }
+
+  function clothingPhotoOf(patch, name) {
+    const key = normalizeName(name).toLowerCase();
+    if (!key) return null;
+    const hit = Object.entries(patch.photos || {}).find(([n]) => n.toLowerCase() === key);
+    return hit ? hit[1] : null;
+  }
+
+  function dropClothingPhoto(patch, name) {
+    const key = normalizeName(name).toLowerCase();
+    if (!key) return;
+    const next = {};
+    Object.entries(patch.photos || {}).forEach(([n, id]) => {
+      if (n.toLowerCase() !== key) next[n] = id;
+    });
+    patch.photos = next;
+  }
+
+  function setClothingPhotoOnPatch(patch, name, photoId) {
+    dropClothingPhoto(patch, name);
+    const trimmed = normalizeName(name);
+    const id = String(photoId || '').trim();
+    if (!trimmed || !id) return;
+    patch.photos = { ...(patch.photos || {}), [trimmed]: id };
+  }
+
+  function clothingPhotoId(gender, tab, name) {
+    return clothingPhotoOf(getClothingPatch(gender, tab), name);
+  }
+
+  function setClothingPhoto(gender, tab, name, photoId) {
+    const g = clothingGender(gender);
+    const tabs = listClothingTabs(g);
+    if (!tabs.includes(tab)) return null;
+    const trimmed = normalizeName(name);
+    if (!trimmed) return null;
+    const patch = getClothingPatch(g, tab);
+    setClothingPhotoOnPatch(patch, trimmed, photoId);
+    setClothingPatch(g, tab, patch);
+    return clothingPhotoOf(patch, trimmed);
+  }
+
+  function findItemPhotoId(name) {
+    const key = normalizeName(name).toLowerCase();
+    if (!key) return null;
+    const accessory = listAccessories().find((a) => a.name.toLowerCase() === key);
+    if (accessory?.photoId) return accessory.photoId;
+    const staple = listStaples().find((s) => s.name.toLowerCase() === key);
+    if (staple?.photoId) return staple.photoId;
+    const preferred = clothingGender(getPrefs().clothingGender);
+    const genders = preferred === 'men' ? ['men', 'women'] : ['women', 'men'];
+    for (const g of genders) {
+      for (const tab of listClothingTabs(g)) {
+        const id = clothingPhotoId(g, tab, name);
+        if (id) return id;
+      }
+    }
+    return null;
   }
 
   function guessSubgroup(name, subs) {
@@ -659,11 +732,13 @@ const PackStore = (() => {
     const patch = getClothingPatch(g, tab);
     const extraIdx = patch.extras.findIndex((n) => n.toLowerCase() === trimmed.toLowerCase());
     if (extraIdx >= 0) {
+      const photoId = clothingPhotoOf(patch, trimmed);
       patch.extras.splice(extraIdx, 1);
       setExtraSub(patch, trimmed, null);
       dropFromClothingOrder(patch, trimmed);
+      dropClothingPhoto(patch, trimmed);
       setClothingPatch(g, tab, patch);
-      return { action: 'removed', name: trimmed };
+      return { action: 'removed', name: trimmed, photoId };
     }
     const defaults = ClothingCatalog.pillsFor(g, tab) || [];
     if (defaults.some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
@@ -713,14 +788,24 @@ const PackStore = (() => {
     if (clash) return { action: 'exists', name: trimmed };
 
     const oldKey = normalizeName(oldName).toLowerCase();
+    const fromPatch = getClothingPatch(g, fromTab);
+    const photoId = clothingPhotoOf(fromPatch, oldName);
     const orderIdx =
       fromTab === destTab
-        ? getClothingPatch(g, fromTab).order.findIndex((n) => n.toLowerCase() === oldKey)
+        ? fromPatch.order.findIndex((n) => n.toLowerCase() === oldKey)
         : -1;
+
+    if (photoId) {
+      dropClothingPhoto(fromPatch, oldName);
+      setClothingPatch(g, fromTab, fromPatch);
+    }
 
     removeClothingItem(g, fromTab, oldName);
     const added = addClothingItem(g, destTab, trimmed, destSub);
-    if (added.action === 'exists') return added;
+    if (added.action === 'exists') {
+      if (photoId) setClothingPhoto(g, fromTab, oldName, photoId);
+      return added;
+    }
     if (fromTab === destTab) {
       const patch = getClothingPatch(g, destTab);
       if (orderIdx >= 0 && patch.order.length) {
@@ -730,7 +815,8 @@ const PackStore = (() => {
         setClothingPatch(g, destTab, patch);
       }
     }
-    return { action: 'renamed', name: trimmed, tab: destTab, sub: destSub };
+    if (photoId) setClothingPhoto(g, destTab, trimmed, photoId);
+    return { action: 'renamed', name: trimmed, tab: destTab, sub: destSub, photoId };
   }
 
   function reorderClothingItems(gender, tab, names, sub) {
@@ -776,6 +862,7 @@ const PackStore = (() => {
           order: catalog[g][tab].order || [],
           extraSubs: catalog[g][tab].extraSubs || {},
           orderBySub: catalog[g][tab].orderBySub || {},
+          photos: catalog[g][tab].photos || {},
         };
         if (clothingPatchIsEmpty(catalog[g][tab])) delete catalog[g][tab];
       });
@@ -922,25 +1009,48 @@ const PackStore = (() => {
     return load().staples.slice();
   }
 
-  function addStaple({ name, category }) {
+  function addStaple({ name, category, photoId }) {
     const id = uid();
     update((state) => {
       state.staples.push({
         id,
         name: (name || '').trim(),
         category: (category || 'Other').trim() || 'Other',
+        photoId: photoId || null,
       });
     });
     return listStaples().find((s) => s.id === id);
   }
 
+  function updateStaple(id, patch) {
+    update((state) => {
+      const idx = state.staples.findIndex((s) => s.id === id);
+      if (idx < 0) return;
+      const cur = state.staples[idx];
+      const name = patch.name != null ? normalizeName(patch.name) : cur.name;
+      if (!name) return;
+      state.staples[idx] = {
+        ...cur,
+        name,
+        category:
+          patch.category != null
+            ? String(patch.category).trim() || 'Other'
+            : cur.category,
+        photoId: patch.photoId !== undefined ? patch.photoId || null : cur.photoId || null,
+      };
+    });
+    return listStaples().find((s) => s.id === id) || null;
+  }
+
   function deleteStaple(id) {
+    const staple = listStaples().find((s) => s.id === id) || null;
     update((state) => {
       state.staples = state.staples.filter((s) => s.id !== id);
       state.trips.forEach((trip) => {
         trip.excludedStapleIds = (trip.excludedStapleIds || []).filter((sid) => sid !== id);
       });
     });
+    return staple;
   }
 
   function reorderStaples(ids) {
@@ -957,7 +1067,7 @@ const PackStore = (() => {
     return load().accessories.slice();
   }
 
-  function addAccessory({ name, category }) {
+  function addAccessory({ name, category, photoId }) {
     const trimmed = normalizeName(name);
     if (!trimmed) return null;
     const existing = listAccessories().find(
@@ -970,6 +1080,7 @@ const PackStore = (() => {
         id,
         name: trimmed,
         category: (category || 'Other').trim() || 'Other',
+        photoId: photoId || null,
       });
     });
     return listAccessories().find((a) => a.id === id);
@@ -993,15 +1104,18 @@ const PackStore = (() => {
           patch.category != null
             ? String(patch.category).trim() || 'Other'
             : cur.category,
+        photoId: patch.photoId !== undefined ? patch.photoId || null : cur.photoId || null,
       };
     });
     return listAccessories().find((a) => a.id === id) || null;
   }
 
   function deleteAccessory(id) {
+    const accessory = listAccessories().find((a) => a.id === id) || null;
     update((state) => {
       state.accessories = state.accessories.filter((a) => a.id !== id);
     });
+    return accessory;
   }
 
   // ——— Trips ———
@@ -1261,7 +1375,13 @@ const PackStore = (() => {
         const items = (outfit.items || []).map((name) => {
           const key = itemKey(name);
           const entry = remember(key, name, 'clothing');
-          return { key, name, packed: entry.packed, source: outfit.name };
+          return {
+            key,
+            name,
+            packed: entry.packed,
+            source: outfit.name,
+            photoId: findItemPhotoId(name),
+          };
         });
         return { id: outfit.id, name: outfit.name, missing: false, items };
       });
@@ -1269,7 +1389,13 @@ const PackStore = (() => {
       const extras = (day.items || []).map((item) => {
         const key = itemKey(item.name);
         const entry = remember(key, item.name, 'day');
-        return { id: item.id, key, name: item.name, packed: entry.packed };
+        return {
+          id: item.id,
+          key,
+          name: item.name,
+          packed: entry.packed,
+          photoId: findItemPhotoId(item.name),
+        };
       });
 
       return {
@@ -1295,6 +1421,7 @@ const PackStore = (() => {
         type: 'staple',
         category: cat,
         packed: !!packed[key],
+        photoId: staple.photoId || findItemPhotoId(staple.name),
       });
     }
 
@@ -1354,6 +1481,9 @@ const PackStore = (() => {
     listClothingItems,
     listClothingSections,
     clothingSubgroup,
+    clothingPhotoId,
+    setClothingPhoto,
+    findItemPhotoId,
     clothingGroupsFor,
     searchClothing,
     isCustomClothingItem,
@@ -1376,6 +1506,7 @@ const PackStore = (() => {
     deleteOutfit,
     listStaples,
     addStaple,
+    updateStaple,
     deleteStaple,
     reorderStaples,
     listAccessories,

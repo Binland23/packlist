@@ -6,6 +6,7 @@ Built as an installable **Progressive Web App** for iPhone (and any modern brows
 
 ## Features
 
+- **Closet** — outfits, clothes, and accessories under one tab; optional photo on each piece
 - **Outfit library** — name looks, list pieces from clothing categories or free text, optional photo
 - **Accessory bank** — save earrings, bags, shoes, and belts once and tap them onto outfits or days
 - **Categories** — pick Tops, Layers (Sweaters, Jackets, Coats), Bottoms, Dresses / Suits instead of typing every piece; drag to reorder each list
