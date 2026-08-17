@@ -104,6 +104,11 @@
       Shorts: 'e.g. Navy shorts',
       Leggings: 'e.g. Black leggings',
       Skirts: 'e.g. Midi skirt',
+      Swim: 'e.g. Black one-piece',
+      Workout: 'e.g. Navy workout shorts',
+      Bras: 'e.g. Nude strapless bra',
+      Underwear: 'e.g. Seamless thong',
+      Sleep: 'e.g. Silk pajamas',
       Sandals: 'e.g. Leather sandals',
       Sneakers: 'e.g. White sneakers',
       Flats: 'e.g. Ballet flats',
@@ -117,6 +122,8 @@
       Bottoms: 'e.g. Levi’s 501s',
       Dresses: 'e.g. Black midi dress',
       Suits: 'e.g. Navy suit',
+      Active: 'e.g. One-piece swimsuit',
+      Intimates: 'e.g. Strapless bra',
       Shoes: 'e.g. White sneakers',
       Accessories: 'e.g. Chunky gold necklace',
       Jewelry: 'e.g. Chunky gold necklace',
@@ -2698,7 +2705,7 @@
         {
           id: 'library',
           title: 'Library',
-          keywords: 'staple accessory category restore gloves bank jewelry necklace earrings bracelet chunky gold customize pieces clothes jeans tops bottoms brands levi shoes sneakers bags',
+          keywords: 'staple accessory category restore gloves bank jewelry necklace earrings bracelet chunky gold customize pieces clothes jeans tops bottoms brands levi shoes sneakers bags swim swimsuit workout intimates bra underwear pajamas',
           html: () => {
             const clothes = PackStore.clothingCatalogSummary();
             const clothesNote =
