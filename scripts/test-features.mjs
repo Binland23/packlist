@@ -126,6 +126,41 @@ PackStore.setSplitView({ enabled: true, left: 'Tops', right: 'Bottoms' });
 const split = PackStore.getSplitView();
 assert(split.enabled && split.left === 'Tops' && split.right === 'Bottoms', 'Split view prefs persist');
 
+const splitReturn = PackStore.setSplitView({ enabled: true, left: 'Layers', right: 'Layers' });
+assert(splitReturn.enabled === true, 'setSplitView returns the split view, not all prefs');
+assert(splitReturn.left === 'Layers' && splitReturn.right !== 'Layers', 'Split panes cannot be the same category');
+assert(PackStore.getSplitView().right === splitReturn.right, 'Coerced split pair is persisted');
+
+const splitInvalid = PackStore.setSplitView({ left: 'Not a tab', right: 'Bottoms' });
+assert(splitInvalid.left !== 'Not a tab', 'Invalid split category falls back to a real heading');
+assert(splitInvalid.left !== splitInvalid.right, 'Fallback split still uses two headings');
+
+PackStore.addItemToDay(trip.id, day.id, { name: 'White tee' });
+day = PackStore.getTrip(trip.id).days[0];
+const extraTee = day.items.find((i) => i.name === 'White tee');
+PackStore.placeDayItem(trip.id, day.id, extraTee.id, day.events[0].id);
+day = PackStore.getTrip(trip.id).days[0];
+assert(
+  day.events[0].items.some((i) => i.name === 'White tee') && !day.items.some((i) => i.name === 'White tee'),
+  'Existing extra can move onto an event'
+);
+
+const brunchTee = day.events[0].items.find((i) => i.name === 'White tee');
+PackStore.placeDayItem(trip.id, day.id, brunchTee.id, day.events[1].id);
+day = PackStore.getTrip(trip.id).days[0];
+assert(
+  day.events[1].items.some((i) => i.name === 'White tee') && !day.events[0].items.some((i) => i.name === 'White tee'),
+  'Item can move from one event to another'
+);
+
+const dinnerTee = day.events[1].items.find((i) => i.name === 'White tee');
+PackStore.placeDayItem(trip.id, day.id, dinnerTee.id, '', [dinnerTee.id, ...day.items.map((i) => i.id)]);
+day = PackStore.getTrip(trip.id).days[0];
+assert(
+  day.items[0].name === 'White tee' && !day.events[1].items.some((i) => i.name === 'White tee'),
+  'Item can drag back off an event onto the day'
+);
+
 const pack = PackStore.buildPackingList(trip.id);
 assert(pack.dayGroups[0].extras.some((e) => e.eventName === 'Dinner' || e.name === 'Scarf'), 'Packing list includes day extras and events');
 
