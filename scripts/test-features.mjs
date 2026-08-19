@@ -126,6 +126,18 @@ PackStore.setSplitView({ enabled: true, left: 'Tops', right: 'Bottoms' });
 const split = PackStore.getSplitView();
 assert(split.enabled && split.left === 'Tops' && split.right === 'Bottoms', 'Split view prefs persist');
 
+assert(PackStore.getPrefs().dayItemSpacing === 'close', 'Day item spacing defaults to close');
+PackStore.setPref('dayItemSpacing', 'spaced');
+assert(PackStore.getPrefs().dayItemSpacing === 'spaced', 'Day item spacing persists');
+PackStore.setPref('dayItemSpacing', 'invalid');
+assert(PackStore.getPrefs().dayItemSpacing === 'close', 'Invalid spacing falls back to close');
+
+assert(PackStore.getPrefs().catAddFormHidden == null, 'Add form hidden pref starts unset');
+PackStore.setPref('catAddFormHidden', true);
+assert(PackStore.getPrefs().catAddFormHidden === true, 'Add form hidden pref persists');
+PackStore.setPref('catAddFormHidden', false);
+assert(PackStore.getPrefs().catAddFormHidden === false, 'Add form can be shown again');
+
 const splitReturn = PackStore.setSplitView({ enabled: true, left: 'Layers', right: 'Layers' });
 assert(splitReturn.enabled === true, 'setSplitView returns the split view, not all prefs');
 assert(splitReturn.left === 'Layers' && splitReturn.right !== 'Layers', 'Split panes cannot be the same category');

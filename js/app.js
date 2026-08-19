@@ -73,6 +73,7 @@
     root.dataset.theme = prefs.theme || 'linen';
     root.dataset.size = prefs.textSize || 'default';
     root.dataset.density = prefs.compactLists ? 'compact' : 'comfy';
+    root.dataset.daySpacing = prefs.dayItemSpacing === 'spaced' ? 'spaced' : 'close';
     root.dataset.reduce = prefs.reduceMotion ? '1' : '0';
     const theme = THEMES.find((t) => t.id === prefs.theme) || THEMES[0];
     const meta = document.querySelector('meta[name="theme-color"]');
@@ -769,6 +770,9 @@
 
       let pillsInner = '';
       const clothingSubs = tab === 'Accessories' ? [] : PackStore.listClothingSubgroups(gender, tab);
+      const addFormPref = PackStore.getPrefs().catAddFormHidden;
+      const addFormHidden =
+        addFormPref === true || addFormPref === false ? addFormPref : !!split.enabled && !searching;
       if (searching) {
         const hits = PackStore.searchClothing(gender, q);
         const bankHits = PackStore.listAccessories().filter((a) =>
@@ -863,7 +867,11 @@
                   tab
                 )} list</button>`
           }
-          <div class="cat-custom">
+          <div class="cat-custom${addFormHidden ? ' collapsed' : ''}">
+            <button type="button" class="cat-custom-toggle" id="cat-custom-toggle" aria-expanded="${addFormHidden ? 'false' : 'true'}">
+              ${addFormHidden ? 'Add a new piece' : 'Hide add form'}
+            </button>
+            <div class="cat-custom-body">
             <label for="cat-custom-input">${
               tab === 'Accessories' ? 'Add your own piece' : `Add to ${escapeHtml(tab)}`
             }</label>
@@ -904,6 +912,7 @@
                     Save to my ${escapeHtml(tab)} list
                   </label>`
             }
+            </div>
           </div>
         </div>
       `;
@@ -961,7 +970,7 @@
           rightBody.innerHTML = tabPills(split.right);
           bindPickButtons(rightBody);
         }
-        const addLabel = container.querySelector('.cat-custom > label');
+        const addLabel = container.querySelector('.cat-custom-body > label');
         if (addLabel && split.left !== 'Accessories') addLabel.textContent = `Add to ${split.left}`;
         if (PackStore.getPrefs().showPhotos) fillPhotoSlots(container);
       }
@@ -999,6 +1008,20 @@
         customizeBtn.onclick = () => {
           closeSheet();
           navigate(`clothes?tab=${encodeURIComponent(tab)}`);
+        };
+      }
+
+      const customToggle = $('#cat-custom-toggle', container);
+      if (customToggle) {
+        customToggle.onclick = () => {
+          const wrap = container.querySelector('.cat-custom');
+          if (!wrap) return;
+          const nextHidden = !wrap.classList.contains('collapsed');
+          wrap.classList.toggle('collapsed', nextHidden);
+          customToggle.setAttribute('aria-expanded', nextHidden ? 'false' : 'true');
+          customToggle.textContent = nextHidden ? 'Add a new piece' : 'Hide add form';
+          PackStore.setPref('catAddFormHidden', nextHidden);
+          if (!nextHidden) $('#cat-custom-input', container)?.focus();
         };
       }
 
@@ -1362,6 +1385,8 @@
     const outfits = PackStore.listOutfits();
     const outfitMap = new Map(outfits.map((o) => [o.id, o]));
     const tripStaples = PackStore.getTripStaples(trip.id);
+    const daySpacing = PackStore.getPrefs().dayItemSpacing === 'spaced' ? 'spaced' : 'close';
+    document.documentElement.dataset.daySpacing = daySpacing;
 
     main.innerHTML = `
       <div class="segments" role="tablist">
@@ -1370,8 +1395,11 @@
       </div>
       <div class="section">
         <div class="section-head">
-          <h2 class="section-title">Days</h2>
-          <span class="section-meta">${plural(trip.days.length, 'day', 'days')}</span>
+          <h2 class="section-title">Days <span class="section-meta">${plural(trip.days.length, 'day', 'days')}</span></h2>
+          <div class="day-spacing-toggle" role="group" aria-label="Item spacing">
+            <button type="button" class="split-toggle${daySpacing === 'close' ? ' active' : ''}" data-spacing="close">Close</button>
+            <button type="button" class="split-toggle${daySpacing === 'spaced' ? ' active' : ''}" data-spacing="spaced">Spaced</button>
+          </div>
         </div>
         <div id="days"></div>
       </div>
@@ -1383,6 +1411,16 @@
 
     $$('.segment').forEach((seg) => {
       seg.onclick = () => navigate(`trip/${trip.id}?view=${seg.dataset.view}`);
+    });
+    $$('[data-spacing]', main).forEach((btn) => {
+      btn.onclick = () => {
+        const next = btn.dataset.spacing === 'spaced' ? 'spaced' : 'close';
+        PackStore.setPref('dayItemSpacing', next);
+        document.documentElement.dataset.daySpacing = next;
+        $$('[data-spacing]', main).forEach((other) => {
+          other.classList.toggle('active', other.dataset.spacing === next);
+        });
+      };
     });
     $('#go-pack').onclick = () => navigate(`trip/${trip.id}?view=pack`);
 
@@ -2531,6 +2569,7 @@
     });
 
     main.classList.toggle('split-clothes-page', !!split.enabled);
+    document.getElementById('app')?.classList.toggle('split-clothes-app', !!split.enabled);
     main.innerHTML = `
       ${closetSegments('clothes')}
       <div class="section clothes-section">
@@ -2704,7 +2743,6 @@
     const stack = document.createElement('div');
     stack.className = 'stack';
     items.forEach((name) => {
-      const custom = PackStore.isCustomClothingItem(gender, tab, name);
       const row = document.createElement('div');
       row.className = 'staple-row library-row sortable-row';
       row.dataset.sortId = name;
@@ -2715,7 +2753,6 @@
           <button type="button" class="library-edit" aria-label="Edit ${escapeHtml(name)}">
             ${itemThumbHtml(PackStore.clothingPhotoId(gender, tab, name))}
             <span class="name">${escapeHtml(name)}</span>
-            <span class="library-edit-hint${custom ? ' yours' : ''}">${custom ? 'Yours' : 'Edit'}</span>
           </button>
           <button type="button" class="del" aria-label="Remove ${escapeHtml(name)}">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
@@ -3836,6 +3873,7 @@
     route = parseHash();
     syncTabs();
     main.classList.remove('split-clothes-page');
+    document.getElementById('app')?.classList.remove('split-clothes-app');
     if (!opts.preserveScroll) {
       closeSheet();
       tripStapleSelecting = false;
