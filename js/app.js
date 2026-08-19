@@ -660,6 +660,7 @@
     let tab = tabs[0];
     let query = '';
     let split = PackStore.getSplitView();
+    let addFormOpen = false;
     const picked = new Set((selectedNames || []).map((n) => String(n).toLowerCase()));
 
     function markPicked(name) {
@@ -793,8 +794,7 @@
       let pillsInner = '';
       const clothingSubs = tab === 'Accessories' ? [] : PackStore.listClothingSubgroups(gender, tab);
       const addFormPref = PackStore.getPrefs().catAddFormHidden;
-      const addFormHidden =
-        addFormPref === true || addFormPref === false ? addFormPref : !!split.enabled && !searching;
+      const addFormHidden = split.enabled ? !addFormOpen : addFormOpen ? false : addFormPref === true;
       if (searching) {
         const hits = PackStore.searchClothing(gender, q);
         const bankHits = PackStore.listAccessories().filter((a) =>
@@ -860,6 +860,7 @@
               Split view
             </button>
             <button type="button" class="text-link" id="cat-add-category">Add category</button>
+            <button type="button" class="text-link${addFormHidden ? '' : ' hidden'}" id="cat-show-add">Add new</button>
           </div>
           <div class="cat-search-wrap">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
@@ -1034,18 +1035,21 @@
       }
 
       const customToggle = $('#cat-custom-toggle', container);
-      if (customToggle) {
-        customToggle.onclick = () => {
-          const wrap = container.querySelector('.cat-custom');
-          if (!wrap) return;
-          const nextHidden = !wrap.classList.contains('collapsed');
-          wrap.classList.toggle('collapsed', nextHidden);
-          customToggle.setAttribute('aria-expanded', nextHidden ? 'false' : 'true');
-          customToggle.textContent = nextHidden ? 'Add a new piece' : 'Hide add form';
-          PackStore.setPref('catAddFormHidden', nextHidden);
-          if (!nextHidden) $('#cat-custom-input', container)?.focus();
-        };
+      const showAddBtn = $('#cat-show-add', container);
+      function setCustomFormHidden(hidden) {
+        addFormOpen = !hidden;
+        const wrap = container.querySelector('.cat-custom');
+        wrap?.classList.toggle('collapsed', hidden);
+        showAddBtn?.classList.toggle('hidden', !hidden);
+        if (customToggle) {
+          customToggle.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+          customToggle.textContent = hidden ? 'Add a new piece' : 'Hide add form';
+        }
+        if (!PackStore.getSplitView().enabled) PackStore.setPref('catAddFormHidden', hidden);
+        if (!hidden) $('#cat-custom-input', container)?.focus();
       }
+      if (customToggle) customToggle.onclick = () => setCustomFormHidden(!container.querySelector('.cat-custom')?.classList.contains('collapsed'));
+      if (showAddBtn) showAddBtn.onclick = () => setCustomFormHidden(false);
 
       const customInput = $('#cat-custom-input', container);
       const syncAccessorySubField = () => {

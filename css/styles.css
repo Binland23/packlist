@@ -2587,8 +2587,7 @@ textarea.input {
 }
 
 .cat-picker-split .cat-custom.collapsed {
-  margin-top: 4px;
-  padding-top: 8px;
+  display: none;
 }
 
 .sheet:has(.cat-picker-split) {
