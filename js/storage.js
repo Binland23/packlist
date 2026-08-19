@@ -735,8 +735,8 @@ const PackStore = (() => {
     const label = String(day?.label || '').trim();
     const auto = !label || isDefaultDayLabel(label, idx) || isWeekdayLabel(label);
     if (auto) {
-      if (weekday && dateText) return `${fallback} · ${weekday}, ${dateText}`;
-      if (dateText) return `${fallback} · ${dateText}`;
+      if (weekday && dateText) return `${weekday}, ${dateText}`;
+      if (dateText) return dateText;
       return label || fallback;
     }
     return dateText ? `${label} · ${dateText}` : label;
@@ -1865,7 +1865,7 @@ const PackStore = (() => {
     const id = uid();
     const now = Date.now();
     const dayCount = Math.max(1, Number(days) || 1);
-    const start = parseISODate(startDate) ? startDate : null;
+    const start = parseISODate(startDate) ? startDate : toISODate(new Date());
     const dayList = Array.from({ length: dayCount }, (_, i) => emptyDay(i, start));
     update((state) => {
       state.trips.unshift({
@@ -2561,6 +2561,7 @@ const PackStore = (() => {
     formatDayDate,
     displayDayTitle,
     parseISODate,
+    toISODate,
     addDaysISO,
     DAY_EVENT_PRESETS,
     listClothingTabs,

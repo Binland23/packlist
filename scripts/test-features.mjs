@@ -86,7 +86,7 @@ assert(trip.days[0].date === '2026-08-17', 'First day stores ISO date');
 assert(PackStore.weekdayName('2026-09-28') === 'Monday', 'Sep 28 2026 is Monday');
 assert(PackStore.formatDayDate('2026-09-28') === 'Sep 28', 'Formats Sep 28 without a timezone shift');
 assert(
-  PackStore.displayDayTitle({ label: 'Day 1', date: '2026-09-28' }, 0) === 'Day 1 · Monday, Sep 28',
+  PackStore.displayDayTitle({ label: 'Day 1', date: '2026-09-28' }, 0) === 'Monday, Sep 28',
   'Dated Day 1 shows weekday and date'
 );
 assert(
@@ -95,8 +95,18 @@ assert(
 );
 assert(PackStore.displayDayTitle({ label: 'Day 2' }, 1) === 'Day 2', 'Undated days keep Day N');
 assert(
-  PackStore.displayDayTitle({ label: 'Tuesday', date: '2026-09-28' }, 0) === 'Day 1 · Monday, Sep 28',
+  PackStore.displayDayTitle({ label: 'Tuesday', date: '2026-09-28' }, 0) === 'Monday, Sep 28',
   'Wrong stored weekday is corrected in the title'
+);
+assert(
+  PackStore.displayDayTitle(trip.days[0], 0) === 'Monday, Aug 17',
+  'New trip days list weekday and date'
+);
+const undatedStart = PackStore.createTrip({ name: 'No date given', days: 2 });
+assert(undatedStart.days[0].date === PackStore.toISODate(new Date()), 'New trips default to today');
+assert(
+  PackStore.displayDayTitle(undatedStart.days[0], 0).includes(', '),
+  'Defaulted trip days show weekday and date'
 );
 
 PackStore.updateDay(trip.id, trip.days[0].id, { notes: 'Early flight' });

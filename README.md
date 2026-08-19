@@ -12,7 +12,7 @@ Built as an installable **Progressive Web App** for iPhone (and any modern brows
 - **Categories** — pick Tops, Layers, Bottoms, Dresses, Active, and Intimates; add your own headings and types (like Bracelets under Jewelry). Drag to reorder each list
 - **Split view** — see two clothing categories at once, such as Tops and Bottoms
 - **Staples** — toiletries, basics (bulk underwear/socks/sleepwear), tech, documents start on every trip; remove one or several **for that trip only**
-- **Trips** — multi-day plans with outfits, extras, **events** (brunch, flight, beach…), notes, and optional weekday/calendar day names
+- **Trips** — multi-day plans with outfits, extras, **events** (brunch, flight, beach…), notes, and days listed as weekday and date
 - **Packing checklist** — outfits expand to individual pieces; tap a look to pack every piece; repeats show on later days but check off once everywhere
 - **Offline / home screen** — works as a standalone app once installed
 - **Settings** — themes, text size, packing behavior, categories, export/import, searchable

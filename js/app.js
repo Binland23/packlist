@@ -1216,9 +1216,9 @@
           <input class="input" id="trip-days" name="days" type="number" min="1" max="30" value="${PackStore.getPrefs().defaultTripDays}" required />
         </div>
         <div class="field">
-          <label for="trip-start">Start date (optional)</label>
-          <input class="input" id="trip-start" type="date" />
-          <p class="hint">If you pick a date, days are named Monday, Tuesday, Wednesday… You can rename any day later.</p>
+          <label for="trip-start">Start date</label>
+          <input class="input" id="trip-start" type="date" value="${escapeHtml(PackStore.toISODate(new Date()) || '')}" required />
+          <p class="hint">Days are listed as weekday and date, like Monday, Sep 28.</p>
         </div>
         <button type="submit" class="btn btn-primary btn-block">Create trip</button>
       </form>
@@ -1230,7 +1230,7 @@
       e.preventDefault();
       const name = $('#trip-name').value.trim();
       const days = Number($('#trip-days').value) || 1;
-      const startDate = $('#trip-start').value || null;
+      const startDate = $('#trip-start').value || PackStore.toISODate(new Date());
       if (!name) return;
       const trip = PackStore.createTrip({ name, days, startDate });
       closeSheet();
@@ -1298,7 +1298,7 @@
         <div class="field">
           <label for="day-date">Date</label>
           <input class="input" id="day-date" type="date" value="${escapeHtml(day.date || '')}" />
-          <p class="hint">Pick a date to name this day from the calendar (Monday, Sep 28, and so on).</p>
+          <p class="hint">Days without a custom name are listed as weekday and date (Monday, Sep 28).</p>
         </div>
         <div class="field">
           <label for="day-notes">Notes</label>
@@ -2151,7 +2151,7 @@
         <div class="field">
           <label for="edit-trip-start">Start date</label>
           <input class="input" id="edit-trip-start" type="date" value="${escapeHtml(trip.days[0]?.date || '')}" />
-          <p class="hint">Names days Monday–Sunday from this date. Custom day names stay unless they were still “Day 1”.</p>
+          <p class="hint">Days are listed as weekday and date from this start (Monday, Sep 28). Custom names stay unless they were still “Day 1”.</p>
         </div>
         <button type="submit" class="btn btn-primary btn-block">Save</button>
       </form>
