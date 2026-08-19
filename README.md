@@ -8,10 +8,11 @@ Built as an installable **Progressive Web App** for iPhone (and any modern brows
 
 - **Closet** — outfits, clothes, and accessories under one tab; optional photo on each piece
 - **Outfit library** — name looks, list pieces from clothing categories or free text, optional photo
-- **Accessory bank** — save earrings, bags, shoes, and belts once and tap them onto outfits or days
-- **Categories** — pick Tops (tees, blouses, sweatshirts), Layers (sweaters, blazers, jackets, coats, vests), Bottoms (jeans, pants, shorts, leggings, skirts), Dresses / Suits, Active (swim, workout), Intimates (bras, underwear, sleep), and Shoes (sandals, sneakers, flats, heels, boots) instead of typing every piece; drag to reorder each list
-- **Staples** — toiletries, basics (bulk underwear/socks/sleepwear), tech, documents start on every trip; remove or add extras **for that trip only**. Outfit-specific bras or underwear live under Intimates and attach to the look.
-- **Trips** — multi-day plans with multiple outfits **and extra items** per day
+- **Accessory bank** — save earrings, bags, shoes, hats, scarves, and belts once and tap them onto outfits or days
+- **Categories** — pick Tops, Layers, Bottoms, Dresses, Active, and Intimates; add your own headings and types (like Bracelets under Jewelry). Drag to reorder each list
+- **Split view** — see two clothing categories at once, such as Tops and Bottoms
+- **Staples** — toiletries, basics (bulk underwear/socks/sleepwear), tech, documents start on every trip; remove one or several **for that trip only**
+- **Trips** — multi-day plans with outfits, extras, **events** (brunch, flight, beach…), notes, and optional weekday/calendar day names
 - **Packing checklist** — outfits expand to individual pieces; tap a look to pack every piece; repeats show on later days but check off once everywhere
 - **Offline / home screen** — works as a standalone app once installed
 - **Settings** — themes, text size, packing behavior, categories, export/import, searchable
