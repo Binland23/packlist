@@ -219,11 +219,14 @@ const PackStore = (() => {
   }
 
   function migrateDay(day, index) {
+    const date = typeof day?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day.date) ? day.date : null;
+    let label = day?.label || `Day ${index + 1}`;
+    if (date && isWeekdayLabel(label)) label = weekdayName(date);
     return {
       ...day,
       id: day?.id || uid(),
-      label: day?.label || `Day ${index + 1}`,
-      date: typeof day?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day.date) ? day.date : null,
+      label,
+      date,
       notes: String(day?.notes || ''),
       outfitIds: Array.isArray(day?.outfitIds) ? day.outfitIds : [],
       items: Array.isArray(day?.items) ? day.items : [],
@@ -669,11 +672,21 @@ const PackStore = (() => {
     return { enabled: !!src.enabled, left, right };
   }
 
+  const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
   function parseISODate(value) {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
     const [y, m, d] = value.split('-').map(Number);
     const date = new Date(y, m - 1, d);
     if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
+    return date;
+  }
+
+  function utcCalendarDate(value) {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+    const [y, m, d] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
     return date;
   }
 
@@ -693,20 +706,40 @@ const PackStore = (() => {
   }
 
   function weekdayName(value) {
-    const date = parseISODate(value);
+    const date = utcCalendarDate(value);
     if (!date) return '';
-    return date.toLocaleDateString('en-US', { weekday: 'long' });
+    return WEEKDAY_NAMES[date.getUTCDay()];
   }
 
   function formatDayDate(value) {
-    const date = parseISODate(value);
+    const date = utcCalendarDate(value);
     if (!date) return '';
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  }
+
+  function isWeekdayLabel(label) {
+    const key = String(label || '').trim().toLowerCase();
+    return WEEKDAY_NAMES.some((name) => name.toLowerCase() === key);
   }
 
   function isDefaultDayLabel(label, index) {
     const expected = `Day ${index + 1}`;
     return !label || String(label).trim().toLowerCase() === expected.toLowerCase();
+  }
+
+  function displayDayTitle(day, index = 0) {
+    const idx = Math.max(0, Number(index) || 0);
+    const fallback = `Day ${idx + 1}`;
+    const dateText = formatDayDate(day?.date);
+    const weekday = weekdayName(day?.date);
+    const label = String(day?.label || '').trim();
+    const auto = !label || isDefaultDayLabel(label, idx) || isWeekdayLabel(label);
+    if (auto) {
+      if (weekday && dateText) return `${fallback} · ${weekday}, ${dateText}`;
+      if (dateText) return `${fallback} · ${dateText}`;
+      return label || fallback;
+    }
+    return dateText ? `${label} · ${dateText}` : label;
   }
 
   function normalizeClothingCatalog(raw) {
@@ -1894,7 +1927,7 @@ const PackStore = (() => {
     if (start) {
       days = days.map((d, i) => {
         const date = addDaysISO(start, i);
-        const keepCustom = d.label && !isDefaultDayLabel(d.label, i) && d.label !== weekdayName(d.date);
+        const keepCustom = d.label && !isDefaultDayLabel(d.label, i) && !isWeekdayLabel(d.label);
         return {
           ...d,
           date,
@@ -1915,7 +1948,7 @@ const PackStore = (() => {
       if (patch.date !== undefined) {
         const date = parseISODate(patch.date) ? patch.date : null;
         next.date = date;
-        if (date && (isDefaultDayLabel(d.label, i) || d.label === weekdayName(d.date))) {
+        if (date && (isDefaultDayLabel(d.label, i) || isWeekdayLabel(d.label))) {
           next.label = weekdayName(date);
         }
       }
@@ -2333,11 +2366,11 @@ const PackStore = (() => {
       return unique.get(key);
     }
 
-    const dayGroups = (trip.days || []).map((day) => {
+    const dayGroups = (trip.days || []).map((day, index) => {
       const outfits = (day.outfitIds || []).map((oid) => {
         const firstDayLabel = outfitFirstDay.get(oid) || null;
         const isRepeat = outfitFirstDay.has(oid);
-        if (!isRepeat) outfitFirstDay.set(oid, day.label);
+        if (!isRepeat) outfitFirstDay.set(oid, displayDayTitle(day, index));
 
         const outfit = outfitMap.get(oid);
         if (!outfit) {
@@ -2413,7 +2446,7 @@ const PackStore = (() => {
 
       return {
         id: day.id,
-        label: day.label,
+        label: displayDayTitle(day, index),
         date: day.date || null,
         notes: day.notes || '',
         outfits,
@@ -2526,6 +2559,7 @@ const PackStore = (() => {
     setSplitView,
     weekdayName,
     formatDayDate,
+    displayDayTitle,
     parseISODate,
     addDaysISO,
     DAY_EVENT_PRESETS,

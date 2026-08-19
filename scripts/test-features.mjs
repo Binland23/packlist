@@ -83,6 +83,21 @@ const trip = PackStore.createTrip({ name: 'Lisbon', days: 3, startDate: '2026-08
 assert(trip.days[0].label === 'Monday', 'First day named Monday from calendar start');
 assert(trip.days[1].label === 'Tuesday', 'Second day named Tuesday');
 assert(trip.days[0].date === '2026-08-17', 'First day stores ISO date');
+assert(PackStore.weekdayName('2026-09-28') === 'Monday', 'Sep 28 2026 is Monday');
+assert(PackStore.formatDayDate('2026-09-28') === 'Sep 28', 'Formats Sep 28 without a timezone shift');
+assert(
+  PackStore.displayDayTitle({ label: 'Day 1', date: '2026-09-28' }, 0) === 'Day 1 · Monday, Sep 28',
+  'Dated Day 1 shows weekday and date'
+);
+assert(
+  PackStore.displayDayTitle({ label: 'Beach day', date: '2026-09-28' }, 0) === 'Beach day · Sep 28',
+  'Custom day names keep the date'
+);
+assert(PackStore.displayDayTitle({ label: 'Day 2' }, 1) === 'Day 2', 'Undated days keep Day N');
+assert(
+  PackStore.displayDayTitle({ label: 'Tuesday', date: '2026-09-28' }, 0) === 'Day 1 · Monday, Sep 28',
+  'Wrong stored weekday is corrected in the title'
+);
 
 PackStore.updateDay(trip.id, trip.days[0].id, { notes: 'Early flight' });
 PackStore.addEventToDay(trip.id, trip.days[0].id, { name: 'Brunch' });

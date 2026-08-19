@@ -1171,6 +1171,14 @@
         0
       );
       const pct = pack.total ? Math.round((pack.packedCount / pack.total) * 100) : 0;
+      const firstDate = trip.days.find((d) => d.date)?.date;
+      const lastDate = [...trip.days].reverse().find((d) => d.date)?.date;
+      const dateBit =
+        firstDate && lastDate && lastDate !== firstDate
+          ? `${PackStore.formatDayDate(firstDate)}–${PackStore.formatDayDate(lastDate)}`
+          : firstDate
+            ? PackStore.formatDayDate(firstDate)
+            : null;
       const extrasBit = extraCount ? ` · ${plural(extraCount, 'extra', 'extras')}` : '';
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -1178,7 +1186,7 @@
       btn.innerHTML = `
         <div class="card-body">
           <p class="card-title">${escapeHtml(trip.name)}</p>
-          <p class="card-sub">${plural(trip.days.length, 'day', 'days')} · ${plural(
+          <p class="card-sub">${dateBit ? `${escapeHtml(dateBit)} · ` : ''}${plural(trip.days.length, 'day', 'days')} · ${plural(
             outfitCount,
             'outfit',
             'outfits'
@@ -1290,7 +1298,7 @@
         <div class="field">
           <label for="day-date">Date</label>
           <input class="input" id="day-date" type="date" value="${escapeHtml(day.date || '')}" />
-          <p class="hint">Pick a date to name this day Monday, Tuesday, and so on.</p>
+          <p class="hint">Pick a date to name this day from the calendar (Monday, Sep 28, and so on).</p>
         </div>
         <div class="field">
           <label for="day-notes">Notes</label>
@@ -1438,11 +1446,11 @@
     $('#go-pack').onclick = () => navigate(`trip/${trip.id}?view=pack`);
 
     const daysEl = $('#days');
-    for (const day of trip.days) {
+    for (const [index, day] of trip.days.entries()) {
       const extraCount =
         (day.items?.length || 0) + (day.events || []).reduce((n, ev) => n + (ev.items?.length || 0), 0);
+      const title = PackStore.displayDayTitle(day, index);
       const metaBits = [
-        day.date ? PackStore.formatDayDate(day.date) : null,
         plural(day.outfitIds.length, 'outfit', 'outfits'),
         extraCount ? plural(extraCount, 'extra', 'extras') : null,
         day.events?.length ? plural(day.events.length, 'event', 'events') : null,
@@ -1455,7 +1463,7 @@
       block.innerHTML = `
         <button type="button" class="day-header day-header-btn">
           <div>
-            <h3>${escapeHtml(day.label)}</h3>
+            <h3>${escapeHtml(title)}</h3>
             ${day.notes ? `<p class="day-notes-preview">${escapeHtml(day.notes)}</p>` : ''}
           </div>
           <span class="section-meta">${metaBits || 'Tap to name'}</span>
