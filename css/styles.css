@@ -152,16 +152,118 @@ html[data-size="xlarge"] .page-title {
 }
 
 html[data-density="compact"] .check-item {
-  padding: 8px 14px;
-  min-height: 44px;
+  padding: 6px 12px;
+  min-height: 38px;
+  gap: 8px;
+}
+
+html[data-density="compact"] .check-group-label {
+  padding: 8px 12px 4px;
 }
 
 html[data-density="compact"] .card-body {
-  padding: 10px 12px;
+  padding: 8px 10px;
+}
+
+html[data-density="compact"] .card-row {
+  padding: 8px 10px;
+  gap: 10px;
 }
 
 html[data-density="compact"] .staple-row {
-  padding: 8px 12px;
+  padding: 6px 8px;
+  gap: 8px;
+}
+
+html[data-density="compact"] .staple-row.library-row {
+  padding: 4px 4px 4px 2px;
+}
+
+html[data-density="compact"] .stack {
+  gap: 6px;
+}
+
+html[data-density="compact"] .outfit-pick {
+  padding: 6px 8px;
+  gap: 8px;
+}
+
+html[data-density="compact"] .outfit-pick .thumb {
+  width: 36px;
+  height: 36px;
+}
+
+html[data-density="compact"] .day-header {
+  padding: 10px 12px;
+}
+
+html[data-density="compact"] .day-outfits {
+  padding: 4px 6px 6px;
+  gap: 4px;
+}
+
+html[data-density="compact"] .day-extras {
+  gap: 0;
+  padding: 0;
+}
+
+html[data-density="compact"] .day-item-row {
+  gap: 4px;
+  padding: 2px 4px;
+  min-height: 34px;
+  border-radius: 8px;
+  background: transparent;
+}
+
+html[data-density="compact"] .day-item-row .name {
+  line-height: 1.25;
+}
+
+html[data-density="compact"] .day-item-row .drag-handle,
+html[data-density="compact"] .day-item-row .remove {
+  width: 28px;
+  height: 28px;
+}
+
+html[data-density="compact"] .day-events-stack,
+html[data-density="compact"] .day-outfit-stack {
+  gap: 4px;
+}
+
+html[data-density="compact"] .day-event {
+  padding: 2px 4px 4px;
+}
+
+html[data-density="compact"] .day-event-head {
+  padding: 0 2px;
+}
+
+html[data-density="compact"] .item-thumb {
+  width: 28px;
+  height: 28px;
+}
+
+html[data-density="compact"] .cat-pill {
+  padding: 6px 12px;
+}
+
+html[data-density="compact"] .pack-outfit-check {
+  padding: 6px 12px;
+  min-height: 36px;
+}
+
+html[data-density="compact"] .check-item.pack-piece {
+  padding-left: 36px;
+  min-height: 36px;
+}
+
+html[data-density="compact"] .checkbox {
+  width: 22px;
+  height: 22px;
+}
+
+html[data-density="compact"] .trip-staple-group .staple-row {
+  margin-bottom: 2px;
 }
 
 html[data-reduce="1"] *,
@@ -389,18 +491,6 @@ img {
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.02em;
-}
-
-.section-title .section-meta {
-  margin-left: 8px;
-  font-family: var(--font-body);
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0;
-}
-
-.section-head:has(.day-spacing-toggle) {
-  align-items: center;
 }
 
 .section-meta {
@@ -850,11 +940,6 @@ img {
   margin-left: -6px;
 }
 
-html[data-density="compact"] .item-thumb {
-  width: 32px;
-  height: 32px;
-}
-
 /* ——— Checkboxes / packing list ——— */
 .check-list {
   display: flex;
@@ -1019,10 +1104,10 @@ html[data-density="compact"] .item-thumb {
 }
 
 .day-outfits {
-  padding: 6px 8px 8px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .outfit-pick {
@@ -1963,8 +2048,8 @@ body.sorting {
 .day-extras {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 0;
+  gap: 6px;
+  padding: 2px 2px 4px;
 }
 
 .day-drop-target {
@@ -2000,24 +2085,22 @@ body.sorting {
 .day-item-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 4px;
-  min-height: 36px;
-  border-radius: 8px;
-  background: transparent;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--bg-elevated);
 }
 
 .day-item-row .name {
   flex: 1;
   font-size: 14px;
   font-weight: 500;
-  line-height: 1.25;
   min-width: 0;
 }
 
 .day-item-row .remove {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
   color: var(--ink-faint);
   display: inline-flex;
@@ -2119,15 +2202,6 @@ body.sorting {
 
 .check-item.pack-piece {
   padding-left: 44px;
-}
-
-html[data-density="compact"] .pack-outfit-check {
-  padding: 8px 14px;
-  min-height: 40px;
-}
-
-html[data-density="compact"] .check-item.pack-piece {
-  padding-left: 40px;
 }
 
 .pack-empty-note {
@@ -2513,8 +2587,7 @@ textarea.input {
 }
 
 .cat-picker-split .cat-custom.collapsed {
-  margin-top: 4px;
-  padding-top: 8px;
+  display: none;
 }
 
 .sheet:has(.cat-picker-split) {
@@ -2623,57 +2696,17 @@ textarea.input {
   padding-top: 8px;
 }
 
-.day-spacing-toggle {
+.trip-tools {
   display: flex;
   align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: -4px 0 12px;
 }
 
-.day-spacing-toggle .split-toggle {
+.trip-compact-toggle {
   min-height: 32px;
-  padding: 4px 10px;
-}
-
-html[data-day-spacing="spaced"] .day-outfits {
-  padding: 8px;
-  gap: 8px;
-}
-
-html[data-day-spacing="spaced"] .day-extras {
-  gap: 6px;
-  padding: 2px 2px 4px;
-}
-
-html[data-day-spacing="spaced"] .day-item-row {
-  gap: 8px;
-  padding: 8px 10px;
-  min-height: 0;
-  border-radius: 12px;
-  background: var(--bg-elevated);
-}
-
-html[data-day-spacing="spaced"] .day-item-row .name {
-  line-height: 1.5;
-}
-
-html[data-day-spacing="spaced"] .day-item-row .remove,
-html[data-day-spacing="spaced"] .day-item-row .drag-handle {
-  width: 32px;
-  height: 32px;
-}
-
-html[data-day-spacing="spaced"] .day-events-stack,
-html[data-day-spacing="spaced"] .day-outfit-stack {
-  gap: 8px;
-}
-
-html[data-day-spacing="spaced"] .day-event {
-  padding: 6px;
-}
-
-html[data-day-spacing="spaced"] .day-event-head {
-  padding: 2px 4px 6px;
+  padding: 4px 12px;
 }
 
 .day-header-btn {
@@ -2702,21 +2735,21 @@ html[data-day-spacing="spaced"] .day-event-head {
 .day-outfit-stack {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .day-event {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 4px;
+  padding: 6px;
 }
 
 .day-event-head {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 2px 2px;
+  padding: 2px 4px 6px;
 }
 
 .day-event-head strong {
@@ -2773,8 +2806,8 @@ html[data-day-spacing="spaced"] .day-event-head {
 }
 
 .day-item-row .drag-handle {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
 }
 @media (min-width: 520px) {
   body {

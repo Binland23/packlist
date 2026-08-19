@@ -81,7 +81,7 @@ const PackStore = (() => {
     clothingGender: 'women',
     theme: 'linen',
     textSize: 'default',
-    compactLists: false,
+    compactLists: true,
     reduceMotion: false,
     defaultTripDays: 3,
     hideEmptyDays: true,
@@ -99,11 +99,17 @@ const PackStore = (() => {
     clothingTabOrder: [],
     accessoryCatalog: {},
     splitView: { enabled: false, left: 'Tops', right: 'Bottoms' },
-    dayItemSpacing: 'close',
     catAddFormHidden: null,
     migratedShoesToAccessories: false,
     migratedHatsScarvesBelts: false,
   };
+
+  function resolveCompactLists(p) {
+    if (p.dayItemSpacing === 'spaced') return false;
+    if (p.dayItemSpacing === 'close') return true;
+    if (typeof p.compactLists === 'boolean') return p.compactLists;
+    return true;
+  }
 
   function mergePrefs(raw) {
     const p = raw && typeof raw === 'object' ? raw : {};
@@ -127,7 +133,7 @@ const PackStore = (() => {
       clothingGender: p.clothingGender === 'men' ? 'men' : 'women',
       theme: THEME_IDS.includes(p.theme) ? p.theme : 'linen',
       textSize: ['default', 'large', 'xlarge'].includes(p.textSize) ? p.textSize : 'default',
-      compactLists: !!p.compactLists,
+      compactLists: resolveCompactLists(p),
       reduceMotion: !!p.reduceMotion,
       defaultTripDays: days,
       hideEmptyDays: p.hideEmptyDays !== false,
@@ -145,7 +151,6 @@ const PackStore = (() => {
       clothingTabOrder,
       accessoryCatalog,
       splitView,
-      dayItemSpacing: p.dayItemSpacing === 'spaced' ? 'spaced' : 'close',
       catAddFormHidden: p.catAddFormHidden === true ? true : p.catAddFormHidden === false ? false : null,
       migratedShoesToAccessories: !!p.migratedShoesToAccessories,
       migratedHatsScarvesBelts: !!p.migratedHatsScarvesBelts,

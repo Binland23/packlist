@@ -126,11 +126,15 @@ PackStore.setSplitView({ enabled: true, left: 'Tops', right: 'Bottoms' });
 const split = PackStore.getSplitView();
 assert(split.enabled && split.left === 'Tops' && split.right === 'Bottoms', 'Split view prefs persist');
 
-assert(PackStore.getPrefs().dayItemSpacing === 'close', 'Day item spacing defaults to close');
+assert(PackStore.getPrefs().compactLists === true, 'Compact lists defaults on');
+PackStore.setPref('compactLists', false);
+assert(PackStore.getPrefs().compactLists === false, 'Compact lists can be turned off');
+PackStore.setPref('compactLists', true);
+assert(PackStore.getPrefs().compactLists === true, 'Compact lists persists on');
 PackStore.setPref('dayItemSpacing', 'spaced');
-assert(PackStore.getPrefs().dayItemSpacing === 'spaced', 'Day item spacing persists');
-PackStore.setPref('dayItemSpacing', 'invalid');
-assert(PackStore.getPrefs().dayItemSpacing === 'close', 'Invalid spacing falls back to close');
+assert(PackStore.getPrefs().compactLists === false, 'Legacy spaced setting turns compact off');
+PackStore.setPref('dayItemSpacing', 'close');
+assert(PackStore.getPrefs().compactLists === true, 'Legacy close setting turns compact on');
 
 assert(PackStore.getPrefs().catAddFormHidden == null, 'Add form hidden pref starts unset');
 PackStore.setPref('catAddFormHidden', true);
