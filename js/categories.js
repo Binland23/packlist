@@ -147,7 +147,13 @@ const ClothingCatalog = (() => {
   };
 
   const ACCESSORY_TABS = {
-    Jewelry: ['Earrings', 'Necklace', 'Bracelet', 'Ring', 'Watch', 'Hoops', 'Studs'],
+    Jewelry: {
+      Earrings: ['Earrings', 'Hoops', 'Studs'],
+      Necklaces: ['Necklace'],
+      Bracelets: ['Bracelet'],
+      Rings: ['Ring'],
+      Watches: ['Watch'],
+    },
     Bags: ['Tote bag', 'Crossbody bag', 'Clutch', 'Backpack', 'Belt bag'],
     Shoes: {
       Sandals: ['Sandals', 'Slides'],
@@ -156,8 +162,25 @@ const ClothingCatalog = (() => {
       Heels: ['Heels', 'Dress shoes'],
       Boots: ['Boots', 'Ankle boots'],
     },
-    Other: ['Belt', 'Sunglasses', 'Hat', 'Scarf', 'Hair ties', 'Hair clip'],
+    Hats: ['Hat', 'Sun hat', 'Baseball cap', 'Beanie', 'Bucket hat'],
+    Scarves: ['Scarf', 'Silk scarf', 'Winter scarf'],
+    Belts: ['Belt'],
+    Other: ['Sunglasses', 'Hair ties', 'Hair clip'],
   };
+
+  const DAY_EVENT_PRESETS = [
+    'Coffee run',
+    'Brunch',
+    'Lunch',
+    'Dinner',
+    'Beach',
+    'Flight',
+    'Sightseeing',
+    'Workout',
+    'Shopping',
+    'Miscellaneous',
+    'Alternate',
+  ];
 
   function flattenGroup(value) {
     if (Array.isArray(value)) return value.slice();
@@ -285,5 +308,6 @@ const ClothingCatalog = (() => {
     accessoryPillsFor,
     searchAll,
     ACCESSORY_TABS,
+    DAY_EVENT_PRESETS,
   };
 })();
