@@ -73,11 +73,33 @@
     root.dataset.theme = prefs.theme || 'linen';
     root.dataset.size = prefs.textSize || 'default';
     root.dataset.density = prefs.compactLists ? 'compact' : 'comfy';
-    root.dataset.daySpacing = prefs.dayItemSpacing === 'spaced' ? 'spaced' : 'close';
     root.dataset.reduce = prefs.reduceMotion ? '1' : '0';
     const theme = THEMES.find((t) => t.id === prefs.theme) || THEMES[0];
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.content = theme.wash;
+  }
+
+  function tripToolsHtml() {
+    const compact = !!PackStore.getPrefs().compactLists;
+    return `
+      <div class="trip-tools">
+        <button type="button" class="split-toggle trip-compact-toggle${compact ? ' active' : ''}" aria-pressed="${compact}">
+          Compact lists
+        </button>
+      </div>
+    `;
+  }
+
+  function bindTripTools() {
+    const btn = $('.trip-compact-toggle', main);
+    if (!btn) return;
+    btn.onclick = () => {
+      const next = !PackStore.getPrefs().compactLists;
+      PackStore.setPref('compactLists', next);
+      applyAppearance();
+      btn.classList.toggle('active', next);
+      btn.setAttribute('aria-pressed', next ? 'true' : 'false');
+    };
   }
 
   function askConfirm(msg) {
@@ -1385,21 +1407,17 @@
     const outfits = PackStore.listOutfits();
     const outfitMap = new Map(outfits.map((o) => [o.id, o]));
     const tripStaples = PackStore.getTripStaples(trip.id);
-    const daySpacing = PackStore.getPrefs().dayItemSpacing === 'spaced' ? 'spaced' : 'close';
-    document.documentElement.dataset.daySpacing = daySpacing;
 
     main.innerHTML = `
       <div class="segments" role="tablist">
         <button type="button" class="segment active" data-view="plan">Plan days</button>
         <button type="button" class="segment" data-view="pack">Pack</button>
       </div>
+      ${tripToolsHtml()}
       <div class="section">
         <div class="section-head">
-          <h2 class="section-title">Days <span class="section-meta">${plural(trip.days.length, 'day', 'days')}</span></h2>
-          <div class="day-spacing-toggle" role="group" aria-label="Item spacing">
-            <button type="button" class="split-toggle${daySpacing === 'close' ? ' active' : ''}" data-spacing="close">Close</button>
-            <button type="button" class="split-toggle${daySpacing === 'spaced' ? ' active' : ''}" data-spacing="spaced">Spaced</button>
-          </div>
+          <h2 class="section-title">Days</h2>
+          <span class="section-meta">${plural(trip.days.length, 'day', 'days')}</span>
         </div>
         <div id="days"></div>
       </div>
@@ -1412,16 +1430,7 @@
     $$('.segment').forEach((seg) => {
       seg.onclick = () => navigate(`trip/${trip.id}?view=${seg.dataset.view}`);
     });
-    $$('[data-spacing]', main).forEach((btn) => {
-      btn.onclick = () => {
-        const next = btn.dataset.spacing === 'spaced' ? 'spaced' : 'close';
-        PackStore.setPref('dayItemSpacing', next);
-        document.documentElement.dataset.daySpacing = next;
-        $$('[data-spacing]', main).forEach((other) => {
-          other.classList.toggle('active', other.dataset.spacing === next);
-        });
-      };
-    });
+    bindTripTools();
     $('#go-pack').onclick = () => navigate(`trip/${trip.id}?view=pack`);
 
     const daysEl = $('#days');
@@ -1819,6 +1828,7 @@
         <button type="button" class="segment" data-view="plan">Plan days</button>
         <button type="button" class="segment active" data-view="pack">Pack</button>
       </div>
+      ${tripToolsHtml()}
       ${hintHtml('pack', 'Each piece has its own checkbox. Tap × on Basics or other staples to skip them for this trip only — your usual list stays intact.')}
       <div class="pack-summary">
         <div>
@@ -1852,6 +1862,7 @@
     $$('.segment').forEach((seg) => {
       seg.onclick = () => navigate(`trip/${trip.id}?view=${seg.dataset.view}`);
     });
+    bindTripTools();
 
     const backPlan = $('#back-to-plan');
     if (backPlan) backPlan.onclick = () => navigate(`trip/${trip.id}?view=plan`);
@@ -3321,7 +3332,7 @@
               ['large', 'Large'],
               ['xlarge', 'Extra large'],
             ], prefs.textSize)}
-            ${settingToggle('compactLists', 'Compact lists', 'Tighter packing and staple rows.', prefs.compactLists)}
+            ${settingToggle('compactLists', 'Compact lists', 'Tighter rows on trips, packing, closet, and staples.', prefs.compactLists)}
             ${settingToggle('reduceMotion', 'Reduce motion', 'Cut animations and springy taps.', prefs.reduceMotion)}
             </div>
           `,
@@ -3488,7 +3499,8 @@
           const next = !PackStore.getPrefs()[key];
           PackStore.setPref(key, next);
           applyAppearance();
-          renderSettingsPreserveSearch();
+          const knob = btn.querySelector('.toggle');
+          if (knob) knob.classList.toggle('on', next);
         };
       });
       $$('[data-select]', root).forEach((sel) => {
@@ -3530,15 +3542,18 @@
     }
 
     function renderSettingsPreserveSearch() {
-      const q = $('#settings-search')?.value || '';
-      renderSettings();
       const input = $('#settings-search');
-      if (input) {
-        input.value = q;
-        input.dispatchEvent(new Event('input'));
-        input.focus();
-        const len = input.value.length;
-        input.setSelectionRange(len, len);
+      const q = input?.value || '';
+      const keepSearchFocus = document.activeElement === input;
+      renderSettings();
+      const next = $('#settings-search');
+      if (!next) return;
+      next.value = q;
+      if (q) next.dispatchEvent(new Event('input'));
+      if (keepSearchFocus) {
+        next.focus();
+        const len = next.value.length;
+        next.setSelectionRange(len, len);
       }
     }
 

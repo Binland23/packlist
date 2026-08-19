@@ -26,7 +26,7 @@
         var root = document.documentElement;
         root.dataset.theme = theme;
         root.dataset.size = p.textSize || 'default';
-        root.dataset.density = p.compactLists ? 'compact' : 'comfy';
+        root.dataset.density = p.compactLists === false ? 'comfy' : 'compact';
         root.dataset.reduce = p.reduceMotion ? '1' : '0';
         var wash = { linen: '#F4EFE6', midnight: '#141210', harbor: '#E4ECED', ink: '#F3F1EA', orchard: '#EEF1E6', ember: '#1A1410' };
         var m = document.querySelector('meta[name="theme-color"]');
