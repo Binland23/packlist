@@ -24,6 +24,7 @@
   let toastTimer = null;
   let sheetOnClose = null;
   let activeSortAbort = null;
+  let suppressSplitToggleUntil = 0;
   let tripStapleSelecting = false;
   const tripStapleSelected = new Set();
 
@@ -168,26 +169,39 @@
     });
   }
 
-  function bindRowSort(stack, onReorder) {
+  function nearestScrollRoot(el) {
+    let node = el;
+    while (node && node !== document.body) {
+      const style = window.getComputedStyle(node);
+      const overflowY = style.overflowY;
+      if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight + 1) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  function bindRowSort(stack, onReorder, options = {}) {
     if (!stack) return;
 
     stack.addEventListener('pointerdown', (e) => {
       const handle = e.target.closest('.drag-handle');
       if (!handle || !stack.contains(handle)) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
-      const row = handle.closest('[data-sort-id]');
+      const row = handle.closest(options.rowSelector || '[data-sort-id]');
       if (!row || row.parentElement !== stack) return;
       e.preventDefault();
       e.stopPropagation();
-      beginRowSort(e, stack, row, handle, onReorder);
+      beginRowSort(e, stack, row, handle, onReorder, options);
     });
   }
 
-  function beginRowSort(startEvent, stack, row, handle, onReorder) {
+  function beginRowSort(startEvent, stack, row, handle, onReorder, options = {}) {
     const rect = row.getBoundingClientRect();
     const placeholder = document.createElement('div');
     placeholder.className = 'sort-placeholder';
-    placeholder.style.height = `${rect.height}px`;
+    placeholder.style.height = `${Math.max(rect.height, 36)}px`;
 
     const ghost = row.cloneNode(true);
     ghost.classList.add('sort-ghost');
@@ -209,7 +223,10 @@
       offsetY: startEvent.clientY - rect.top,
       offsetX: startEvent.clientX - rect.left,
       lastY: startEvent.clientY,
+      lastX: startEvent.clientX,
       autoScroll: 0,
+      scrollRoot: nearestScrollRoot(stack),
+      hoverEl: null,
       moved: false,
       done: false,
     };
@@ -222,19 +239,76 @@
 
     document.body.classList.add('sorting');
 
+    function stacksNow() {
+      if (typeof options.getStacks === 'function') return options.getStacks().filter(Boolean);
+      return [stack];
+    }
+
+    function clearHover() {
+      $$('.drop-hover').forEach((el) => el.classList.remove('drop-hover'));
+      state.hoverEl = null;
+    }
+
+    function markHover(dest) {
+      const next = options.hoverForStack ? options.hoverForStack(dest) : dest;
+      if (state.hoverEl === next) return;
+      clearHover();
+      state.hoverEl = next;
+      if (next) next.classList.add('drop-hover');
+    }
+
+    function destAt(x, y) {
+      const stacks = stacksNow();
+      for (const s of stacks) {
+        const box = s.getBoundingClientRect();
+        if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) return s;
+      }
+      for (const rootEl of options.getDropRoots?.() || []) {
+        const box = rootEl.getBoundingClientRect();
+        if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) {
+          return options.stackForRoot?.(rootEl) || stacks.find((s) => rootEl.contains(s)) || placeholder.parentElement;
+        }
+      }
+      return placeholder.parentElement || stack;
+    }
+
+    function movePlaceholder(x, y) {
+      const dest = destAt(x, y) || stack;
+      markHover(dest);
+      state.scrollRoot = nearestScrollRoot(dest) || nearestScrollRoot(stack);
+      const kids = [...dest.children].filter((el) => el !== row && el !== placeholder);
+      for (const kid of kids) {
+        const box = kid.getBoundingClientRect();
+        if (y < box.top + box.height / 2) {
+          dest.insertBefore(placeholder, kid);
+          return;
+        }
+      }
+      dest.appendChild(placeholder);
+    }
+
     const onMove = (event) => {
       if (state.done || event.pointerId !== state.pointerId) return;
       event.preventDefault();
       state.moved = true;
       state.lastY = event.clientY;
+      state.lastX = event.clientX;
       ghost.style.top = `${event.clientY - state.offsetY}px`;
       ghost.style.left = `${event.clientX - state.offsetX}px`;
-      movePlaceholder(event.clientY);
-      const topEdge = 80;
-      const bottomEdge = window.innerHeight - 96;
-      if (event.clientY < topEdge) state.autoScroll = -14;
-      else if (event.clientY > bottomEdge) state.autoScroll = 14;
-      else state.autoScroll = 0;
+      movePlaceholder(event.clientX, event.clientY);
+      const scroller = state.scrollRoot;
+      if (scroller) {
+        const box = scroller.getBoundingClientRect();
+        if (event.clientY < box.top + 44) state.autoScroll = -14;
+        else if (event.clientY > box.bottom - 44) state.autoScroll = 14;
+        else state.autoScroll = 0;
+      } else {
+        const topEdge = 80;
+        const bottomEdge = window.innerHeight - 96;
+        if (event.clientY < topEdge) state.autoScroll = -14;
+        else if (event.clientY > bottomEdge) state.autoScroll = 14;
+        else state.autoScroll = 0;
+      }
     };
 
     const onUp = (event) => {
@@ -246,23 +320,12 @@
       event.preventDefault();
     };
 
-    function movePlaceholder(y) {
-      const kids = [...stack.children].filter((el) => el !== row && el !== placeholder);
-      for (const kid of kids) {
-        const box = kid.getBoundingClientRect();
-        if (y < box.top + box.height / 2) {
-          stack.insertBefore(placeholder, kid);
-          return;
-        }
-      }
-      stack.appendChild(placeholder);
-    }
-
     let raf = requestAnimationFrame(function loop() {
       if (state.done) return;
       if (state.autoScroll) {
-        window.scrollBy(0, state.autoScroll);
-        movePlaceholder(state.lastY);
+        if (state.scrollRoot) state.scrollRoot.scrollTop += state.autoScroll;
+        else window.scrollBy(0, state.autoScroll);
+        movePlaceholder(state.lastX, state.lastY);
       }
       raf = requestAnimationFrame(loop);
     });
@@ -284,12 +347,14 @@
         /* already released */
       }
       document.body.classList.remove('sorting');
+      clearHover();
       ghost.remove();
+      const dest = placeholder.parentElement || stack;
       placeholder.replaceWith(row);
       row.classList.remove('sorting-row');
       if (!state.moved) return;
-      const names = [...stack.querySelectorAll('[data-sort-id]')].map((el) => el.dataset.sortId);
-      onReorder(names);
+      const names = [...dest.querySelectorAll(':scope > [data-sort-id]')].map((el) => el.dataset.sortId);
+      onReorder(names, dest, row.dataset.sortId);
     }
 
     activeSortAbort = finish;
@@ -667,13 +732,38 @@
         .join('');
     }
 
+    function bindPickButtons(root) {
+      $$('[data-pick]', root).forEach((btn) => {
+        btn.onclick = () => {
+          const name = btn.dataset.pick;
+          if (isPicked(name)) {
+            picked.delete(name.toLowerCase());
+            btn.classList.remove('picked');
+            if (onUnpick) onUnpick(name);
+            return;
+          }
+          markPicked(name);
+          btn.classList.add('picked');
+          if (onPick) onPick(name);
+        };
+      });
+    }
+
+    function syncSplitSelectOptions(leftSelect, rightSelect) {
+      if (!leftSelect || !rightSelect) return;
+      [...leftSelect.options].forEach((opt) => {
+        opt.disabled = opt.value === rightSelect.value && leftSelect.value !== opt.value;
+      });
+      [...rightSelect.options].forEach((opt) => {
+        opt.disabled = opt.value === leftSelect.value && rightSelect.value !== opt.value;
+      });
+    }
+
     function paint() {
       tabs = PackStore.listPickerTabs(gender);
+      split = PackStore.getSplitView(tabs);
+      if (split.enabled) tab = split.left;
       if (!tabs.includes(tab)) tab = tabs[0];
-      if (!tabs.includes(split.left)) split = { ...split, left: tabs[0] || 'Tops' };
-      if (!tabs.includes(split.right) || split.right === split.left) {
-        split = { ...split, right: tabs.find((t) => t !== split.left) || 'Bottoms' };
-      }
       const q = query.trim();
       const searching = q.length > 0;
 
@@ -728,7 +818,7 @@
       }
 
       container.innerHTML = `
-        <div class="cat-picker">
+        <div class="cat-picker${split.enabled && !searching ? ' cat-picker-split' : ''}">
           ${
             showBack
               ? `<button type="button" class="text-back" id="cat-back">
@@ -767,7 +857,7 @@
           }
           <div class="cat-results">${pillsInner}</div>
           ${
-            searching || tab === 'Accessories'
+            searching || split.enabled || tab === 'Accessories'
               ? ''
               : `<button type="button" class="browse-cats-btn" id="cat-customize">Customize ${escapeHtml(
                   tab
@@ -823,7 +913,9 @@
       const splitToggle = $('#cat-split-toggle', container);
       if (splitToggle) {
         splitToggle.onclick = () => {
-          split = PackStore.setSplitView({ ...split, enabled: !split.enabled });
+          if (Date.now() < suppressSplitToggleUntil) return;
+          split = PackStore.setSplitView({ enabled: !split.enabled });
+          if (split.enabled) tab = split.left;
           paint();
         };
       }
@@ -845,18 +937,40 @@
       }
       const splitLeft = $('#split-left', container);
       const splitRight = $('#split-right', container);
-      if (splitLeft) {
-        splitLeft.onchange = () => {
-          split = PackStore.setSplitView({ ...split, left: splitLeft.value });
-          tab = split.left;
+      const leftBody = splitLeft?.parentElement?.querySelector('.split-pane-body');
+      const rightBody = splitRight?.parentElement?.querySelector('.split-pane-body');
+      syncSplitSelectOptions(splitLeft, splitRight);
+
+      function applyPaneChange(side, select) {
+        suppressSplitToggleUntil = Date.now() + 700;
+        const prev = { left: split.left, right: split.right };
+        split = PackStore.setSplitView({ [side]: select.value });
+        tab = split.left;
+        if (side === 'left' || prev.left === 'Accessories' || split.left === 'Accessories') {
           paint();
-        };
+          return;
+        }
+        if (splitLeft) splitLeft.value = split.left;
+        if (splitRight) splitRight.value = split.right;
+        syncSplitSelectOptions(splitLeft, splitRight);
+        if (leftBody && split.left !== prev.left) {
+          leftBody.innerHTML = tabPills(split.left);
+          bindPickButtons(leftBody);
+        }
+        if (rightBody && split.right !== prev.right) {
+          rightBody.innerHTML = tabPills(split.right);
+          bindPickButtons(rightBody);
+        }
+        const addLabel = container.querySelector('.cat-custom > label');
+        if (addLabel && split.left !== 'Accessories') addLabel.textContent = `Add to ${split.left}`;
+        if (PackStore.getPrefs().showPhotos) fillPhotoSlots(container);
+      }
+
+      if (splitLeft) {
+        splitLeft.onchange = () => applyPaneChange('left', splitLeft);
       }
       if (splitRight) {
-        splitRight.onchange = () => {
-          split = PackStore.setSplitView({ ...split, right: splitRight.value });
-          paint();
-        };
+        splitRight.onchange = () => applyPaneChange('right', splitRight);
       }
 
       $$('[data-tab]', container).forEach((btn) => {
@@ -866,20 +980,7 @@
         };
       });
 
-      $$('[data-pick]', container).forEach((btn) => {
-        btn.onclick = () => {
-          const name = btn.dataset.pick;
-          if (isPicked(name)) {
-            picked.delete(name.toLowerCase());
-            btn.classList.remove('picked');
-            if (onUnpick) onUnpick(name);
-            return;
-          }
-          markPicked(name);
-          btn.classList.add('picked');
-          if (onPick) onPick(name);
-        };
-      });
+      bindPickButtons(container);
 
       const searchInput = $('#cat-search', container);
       searchInput.oninput = () => {
@@ -1104,10 +1205,27 @@
     return extra;
   }
 
-  function bindItemStack(stack, trip, day, eventId) {
-    bindRowSort(stack, (ids) => {
-      PackStore.reorderDayItems(trip.id, day.id, ids, eventId || undefined);
-    });
+  function bindItemStack(stack, trip, day) {
+    bindRowSort(
+      stack,
+      (ids, dest, itemId) => {
+        const destEventId = dest?.dataset.eventId || '';
+        const live = PackStore.getTrip(trip.id)?.days.find((d) => d.id === day.id);
+        const fromEvent = (live?.events || []).find((ev) => (ev.items || []).some((item) => item.id === itemId));
+        const sourceEventId = fromEvent ? fromEvent.id : '';
+        PackStore.placeDayItem(trip.id, day.id, itemId, destEventId, ids);
+        if (sourceEventId !== destEventId) {
+          toast(destEventId ? 'Moved onto event' : 'Moved off event');
+          render({ preserveScroll: true });
+        }
+      },
+      {
+        getStacks: () => $$('.day-item-stack', stack.closest('.day-outfits') || document),
+        getDropRoots: () => $$('.day-event', stack.closest('.day-outfits') || document),
+        stackForRoot: (rootEl) => $('.day-item-stack', rootEl),
+        hoverForStack: (dest) => dest.closest('.day-event') || dest,
+      }
+    );
   }
 
   function showDayEditor(trip, day) {
@@ -1366,11 +1484,13 @@
           render({ preserveScroll: true });
         };
         const itemsWrap = document.createElement('div');
-        itemsWrap.className = 'day-extras';
+        itemsWrap.className = 'day-extras day-item-stack';
+        itemsWrap.dataset.eventId = ev.id;
+        if (!(ev.items || []).length) itemsWrap.classList.add('day-drop-target');
         (ev.items || []).forEach((item) => {
           itemsWrap.appendChild(dayItemRow(trip, day, item, { eventId: ev.id }));
         });
-        bindItemStack(itemsWrap, trip, day, ev.id);
+        bindItemStack(itemsWrap, trip, day);
         card.appendChild(itemsWrap);
         const addItem = document.createElement('button');
         addItem.type = 'button';
@@ -1385,10 +1505,13 @@
         container.appendChild(eventsStack);
       }
 
-      if (day.items?.length) {
+      const hasEvents = (day.events || []).length > 0;
+      if (hasEvents || day.items?.length) {
         const extrasWrap = document.createElement('div');
-        extrasWrap.className = 'day-extras';
-        day.items.forEach((item) => {
+        extrasWrap.className = 'day-extras day-item-stack';
+        extrasWrap.dataset.eventId = '';
+        if (hasEvents && !day.items?.length) extrasWrap.classList.add('day-drop-target');
+        (day.items || []).forEach((item) => {
           extrasWrap.appendChild(dayItemRow(trip, day, item, { tag: 'This day' }));
         });
         bindItemStack(extrasWrap, trip, day);
@@ -2394,24 +2517,26 @@
     const tabs = PackStore.listClothingTabs(gender);
     let tab = route.params.tab;
     if (!tabs.includes(tab)) tab = tabs[0];
-    const split = PackStore.getSplitView();
+    const split = PackStore.getSplitView(tabs);
+    const addTab = split.enabled ? split.left : tab;
 
     setChrome({
       title: 'Closet',
       eyebrow: 'Your pieces',
       showBack: false,
       action: {
-        label: `Add to ${tab}`,
-        onClick: () => showClothingEditor({ gender, tab }),
+        label: `Add to ${addTab}`,
+        onClick: () => showClothingEditor({ gender, tab: addTab }),
       },
     });
 
+    main.classList.toggle('split-clothes-page', !!split.enabled);
     main.innerHTML = `
       ${closetSegments('clothes')}
-      <div class="section">
+      <div class="section clothes-section">
         ${hintHtml(
           'clothes',
-          'This is your Tops, Bottoms, and everything else — the same lists you tap when packing a day. Drag the grip to put pieces in the order you like. Split view shows two categories at once, like Tops and Bottoms.'
+          'This is your Tops, Bottoms, and everything else — the same lists you tap when packing a day. Drag the grip to put pieces in the order you like. Split view shows two categories at once, like Tops and Bottoms. Each side scrolls on its own so you can hold one list still while you hunt on the other.'
         )}
         <div class="cat-toolbar">
           <button type="button" class="split-toggle${split.enabled ? ' active' : ''}" id="clothes-split-toggle">Split view</button>
@@ -2432,7 +2557,7 @@
       </div>
       <div class="sticky-cta">
         <button type="button" class="btn btn-primary btn-block" id="add-clothes-btn">Add to ${escapeHtml(
-          tab
+          addTab
         )}</button>
       </div>
     `;
@@ -2441,14 +2566,16 @@
     bindHints();
 
     $('#clothes-split-toggle').onclick = () => {
-      PackStore.setSplitView({ enabled: !split.enabled });
-      render();
+      if (Date.now() < suppressSplitToggleUntil) return;
+      const next = PackStore.setSplitView({ enabled: !split.enabled }, tabs);
+      if (!next.enabled) navigate(clothesHash(next.left));
+      else render();
     };
     $('#clothes-add-category').onclick = () =>
-      showAddCategorySheet({ gender, tab, onSaved: () => render() });
+      showAddCategorySheet({ gender, tab: addTab, onSaved: () => render() });
     $('#clothes-manage-categories').onclick = () =>
-      showManageCategoriesSheet({ kind: 'clothing', gender, tab });
-    $$('[data-tab]', main).forEach((btn) => {
+      showManageCategoriesSheet({ kind: 'clothing', gender, tab: addTab });
+    $$('.clothes-tabs [data-tab]', main).forEach((btn) => {
       btn.onclick = () => navigate(clothesHash(btn.dataset.tab));
     });
 
@@ -2465,6 +2592,29 @@
         select.appendChild(opt);
       });
       return select;
+    }
+
+    function bindPaneAdds(host) {
+      $$('.clothes-sub-add', host).forEach((btn) => {
+        btn.onclick = () =>
+          showClothingEditor({ gender, tab: btn.dataset.tab || addTab, sub: btn.dataset.sub });
+      });
+      if (PackStore.getPrefs().showPhotos) fillPhotoSlots(host);
+    }
+
+    function syncClothesSplitSelects(leftSelect, rightSelect) {
+      [...leftSelect.options].forEach((opt) => {
+        opt.disabled = opt.value === rightSelect.value && leftSelect.value !== opt.value;
+      });
+      [...rightSelect.options].forEach((opt) => {
+        opt.disabled = opt.value === leftSelect.value && rightSelect.value !== opt.value;
+      });
+    }
+
+    function refillPane(body, paneTab) {
+      body.innerHTML = '';
+      fillPane(body, paneTab);
+      bindPaneAdds(body);
     }
 
     function fillPane(host, paneTab) {
@@ -2524,24 +2674,30 @@
       right.appendChild(rightBody);
       list.appendChild(left);
       list.appendChild(right);
-      leftSelect.onchange = () => {
-        PackStore.setSplitView({ left: leftSelect.value });
-        render();
-      };
-      rightSelect.onchange = () => {
-        PackStore.setSplitView({ right: rightSelect.value });
-        render();
-      };
+      syncClothesSplitSelects(leftSelect, rightSelect);
+      const addBtn = $('#add-clothes-btn');
+      function applyClothesPane(side, select) {
+        suppressSplitToggleUntil = Date.now() + 700;
+        const prev = PackStore.getSplitView(tabs);
+        const next = PackStore.setSplitView({ [side]: select.value }, tabs);
+        leftSelect.value = next.left;
+        rightSelect.value = next.right;
+        syncClothesSplitSelects(leftSelect, rightSelect);
+        if (next.left !== prev.left) refillPane(leftBody, next.left);
+        if (next.right !== prev.right) refillPane(rightBody, next.right);
+        if (addBtn) addBtn.textContent = `Add to ${next.left}`;
+        headerAction.setAttribute('aria-label', `Add to ${next.left}`);
+        headerAction.onclick = () => showClothingEditor({ gender, tab: next.left });
+        addBtn.onclick = () => showClothingEditor({ gender, tab: next.left });
+      }
+      leftSelect.onchange = () => applyClothesPane('left', leftSelect);
+      rightSelect.onchange = () => applyClothesPane('right', rightSelect);
     } else {
       fillPane(list, tab);
     }
-    $$('.clothes-sub-add', list).forEach((btn) => {
-      btn.onclick = () =>
-        showClothingEditor({ gender, tab: btn.dataset.tab || tab, sub: btn.dataset.sub });
-    });
+    bindPaneAdds(list);
 
-    $('#add-clothes-btn').onclick = () => showClothingEditor({ gender, tab });
-    if (PackStore.getPrefs().showPhotos) fillPhotoSlots(list);
+    $('#add-clothes-btn').onclick = () => showClothingEditor({ gender, tab: addTab });
   }
 
   function buildClothingStack(gender, tab, items, sub = '') {
@@ -3679,6 +3835,7 @@
     const x = window.scrollX;
     route = parseHash();
     syncTabs();
+    main.classList.remove('split-clothes-page');
     if (!opts.preserveScroll) {
       closeSheet();
       tripStapleSelecting = false;

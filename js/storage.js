@@ -640,8 +640,24 @@ const PackStore = (() => {
     return {
       enabled: !!src.enabled,
       left,
-      right: right.toLowerCase() === left.toLowerCase() ? 'Bottoms' : right,
+      right,
     };
+  }
+
+  function coerceSplitView(raw, tabs) {
+    const names = Array.isArray(tabs) && tabs.length ? tabs.slice() : ['Tops', 'Bottoms'];
+    const src = normalizeSplitView(raw);
+    const match = (value) => {
+      const want = String(value || '').trim().toLowerCase();
+      if (!want) return null;
+      return names.find((t) => t.toLowerCase() === want) || null;
+    };
+    const other = (avoid) =>
+      names.find((t) => t.toLowerCase() !== String(avoid || '').toLowerCase()) || names[0];
+    const left = match(src.left) || names[0];
+    let right = match(src.right);
+    if (!right || right.toLowerCase() === left.toLowerCase()) right = other(left);
+    return { enabled: !!src.enabled, left, right };
   }
 
   function parseISODate(value) {
@@ -1000,12 +1016,15 @@ const PackStore = (() => {
     return { action: 'removed', name: trimmed };
   }
 
-  function getSplitView() {
-    return normalizeSplitView(getPrefs().splitView);
+  function getSplitView(tabs) {
+    return coerceSplitView(getPrefs().splitView, tabs || listPickerTabs('women'));
   }
 
-  function setSplitView(patch) {
-    return setPref('splitView', normalizeSplitView({ ...getSplitView(), ...patch }));
+  function setSplitView(patch, tabs) {
+    const names = tabs || listPickerTabs('women');
+    const next = coerceSplitView({ ...getSplitView(names), ...patch }, names);
+    setPref('splitView', next);
+    return next;
   }
 
   function extraSubOf(patch, name) {
@@ -1981,6 +2000,59 @@ const PackStore = (() => {
     return updateTrip(tripId, { days });
   }
 
+  function placeDayItem(tripId, dayId, itemId, destEventId, orderedIds) {
+    const trip = getTrip(tripId);
+    if (!trip) return null;
+    const destKey = destEventId ? String(destEventId) : '';
+    const days = trip.days.map((d) => {
+      if (d.id !== dayId) return d;
+      let found = null;
+      const restItems = (d.items || []).filter((item) => {
+        if (item.id === itemId) {
+          found = item;
+          return false;
+        }
+        return true;
+      });
+      const events = (d.events || []).map((ev) => ({
+        ...ev,
+        items: (ev.items || []).filter((item) => {
+          if (item.id === itemId) {
+            found = item;
+            return false;
+          }
+          return true;
+        }),
+      }));
+      if (!found) return d;
+      const order = Array.isArray(orderedIds) && orderedIds.length ? orderedIds : [itemId];
+      if (destKey) {
+        const hasDest = events.some((ev) => ev.id === destKey);
+        if (!hasDest) {
+          return {
+            ...d,
+            items: spliceReorderById([...restItems, found], order),
+            events,
+          };
+        }
+        return {
+          ...d,
+          items: restItems,
+          events: events.map((ev) => {
+            if (ev.id !== destKey) return ev;
+            return { ...ev, items: spliceReorderById([...ev.items, found], order) };
+          }),
+        };
+      }
+      return {
+        ...d,
+        items: spliceReorderById([...restItems, found], order),
+        events,
+      };
+    });
+    return updateTrip(tripId, { days });
+  }
+
   function reorderDayOutfits(tripId, dayId, outfitIds) {
     const trip = getTrip(tripId);
     if (!trip) return null;
@@ -2501,6 +2573,7 @@ const PackStore = (() => {
     removeEventFromDay,
     reorderDayEvents,
     reorderDayItems,
+    placeDayItem,
     reorderDayOutfits,
     addOutfitToDay,
     removeOutfitFromDay,
