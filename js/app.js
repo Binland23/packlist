@@ -24,6 +24,8 @@
   let toastTimer = null;
   let sheetOnClose = null;
   let activeSortAbort = null;
+  let tripStapleSelecting = false;
+  const tripStapleSelected = new Set();
 
   // ——— Utils ———
   function escapeHtml(str) {
@@ -113,7 +115,14 @@
       Sneakers: 'e.g. White sneakers',
       Flats: 'e.g. Ballet flats',
       Heels: 'e.g. Black heels',
-      Boots: 'e.g. Ankle boots',
+      Hats: 'e.g. Straw sun hat',
+      Scarves: 'e.g. Silk scarf',
+      Belts: 'e.g. Tan leather belt',
+      Bracelets: 'e.g. Gold bangle',
+      Earrings: 'e.g. Gold hoops',
+      Necklaces: 'e.g. Everyday necklace',
+      Rings: 'e.g. Signet ring',
+      Watches: 'e.g. Gold watch',
     };
     if (sub && bySub[sub]) return bySub[sub];
     const map = {
@@ -128,7 +137,11 @@
       Accessories: 'e.g. Chunky gold necklace',
       Jewelry: 'e.g. Chunky gold necklace',
       Bags: 'e.g. Crossbody bag',
-      Other: 'e.g. Silk scarf',
+      Other: 'e.g. Sunglasses',
+      Hats: 'e.g. Straw sun hat',
+      Scarves: 'e.g. Silk scarf',
+      Belts: 'e.g. Tan leather belt',
+      Bracelets: 'e.g. Gold bangle',
     };
     return map[tab] || 'e.g. White linen tee';
   }
@@ -553,12 +566,13 @@
   }
 
   // ——— Category picker ———
-  function mountCategoryPicker(container, { onPick, onBack, showBack = false } = {}) {
-    let gender = PackStore.getPrefs().clothingGender || 'women';
-    let tabs = ClothingCatalog.tabsFor(gender);
+  function mountCategoryPicker(container, { onPick, onUnpick, onBack, showBack = false, selectedNames = [] } = {}) {
+    const gender = 'women';
+    let tabs = PackStore.listPickerTabs(gender);
     let tab = tabs[0];
     let query = '';
-    const picked = new Set();
+    let split = PackStore.getSplitView();
+    const picked = new Set((selectedNames || []).map((n) => String(n).toLowerCase()));
 
     function markPicked(name) {
       picked.add(name.toLowerCase());
@@ -577,40 +591,9 @@
       `;
     }
 
-    function paint() {
-      tabs = ClothingCatalog.tabsFor(gender);
-      if (!tabs.includes(tab)) tab = tabs[0];
-      const q = query.trim();
-      const searching = q.length > 0;
-
+    function tabPills(activeTab) {
       let pillsInner = '';
-      const clothingSubs = tab === 'Accessories' ? [] : PackStore.listClothingSubgroups(gender, tab);
-      if (searching) {
-        const hits = PackStore.searchClothing(gender, q);
-        const bankHits = PackStore.listAccessories().filter((a) =>
-          a.name.toLowerCase().includes(q.toLowerCase())
-        );
-        if (!hits.length && !bankHits.length) {
-          pillsInner = `<p class="cat-empty">No matches. Type a custom name below.</p>`;
-        } else {
-          if (bankHits.length) {
-            pillsInner += `<p class="cat-group-label">Your accessories</p><div class="cat-pills">${bankHits
-              .map((a) => pillButton(a.name, a.category, a.photoId))
-              .join('')}</div>`;
-          }
-          if (hits.length) {
-            pillsInner += `<p class="cat-group-label">Categories</p><div class="cat-pills">${hits
-              .map((h) =>
-                pillButton(
-                  h.name,
-                  h.sub || h.group,
-                  PackStore.clothingPhotoId(gender, h.group, h.name) || PackStore.findItemPhotoId(h.name)
-                )
-              )
-              .join('')}</div>`;
-          }
-        }
-      } else if (tab === 'Accessories') {
+      if (activeTab === 'Accessories') {
         const bank = PackStore.listAccessories();
         const byCat = new Map();
         bank.forEach((a) => {
@@ -661,25 +644,87 @@
               .join('')}</div>`;
           }
         });
-      } else {
-        const sections = PackStore.listClothingSections(gender, tab);
-        const hasItems = sections.some((section) => section.items.length);
-        if (!hasItems) {
-          pillsInner = `<p class="cat-empty">Nothing in ${escapeHtml(tab)} yet. Add your own below, or customize this list.</p>`;
-        } else if (sections.length === 1 && !sections[0].label) {
-          pillsInner = `<div class="cat-pills">${sections[0].items
-            .map((n) => pillButton(n, null, PackStore.clothingPhotoId(gender, tab, n)))
+        return pillsInner;
+      }
+
+      const sections = PackStore.listClothingSections(gender, activeTab);
+      const hasItems = sections.some((section) => section.items.length);
+      if (!hasItems) {
+        return `<p class="cat-empty">Nothing in ${escapeHtml(activeTab)} yet. Add your own below, or customize this list.</p>`;
+      }
+      if (sections.length === 1 && !sections[0].label) {
+        return `<div class="cat-pills">${sections[0].items
+          .map((n) => pillButton(n, null, PackStore.clothingPhotoId(gender, activeTab, n)))
+          .join('')}</div>`;
+      }
+      return sections
+        .map((section) => {
+          if (!section.items.length) return '';
+          return `<p class="cat-group-label">${escapeHtml(section.label)}</p><div class="cat-pills">${section.items
+            .map((n) => pillButton(n, null, PackStore.clothingPhotoId(gender, activeTab, n)))
             .join('')}</div>`;
+        })
+        .join('');
+    }
+
+    function paint() {
+      tabs = PackStore.listPickerTabs(gender);
+      if (!tabs.includes(tab)) tab = tabs[0];
+      if (!tabs.includes(split.left)) split = { ...split, left: tabs[0] || 'Tops' };
+      if (!tabs.includes(split.right) || split.right === split.left) {
+        split = { ...split, right: tabs.find((t) => t !== split.left) || 'Bottoms' };
+      }
+      const q = query.trim();
+      const searching = q.length > 0;
+
+      let pillsInner = '';
+      const clothingSubs = tab === 'Accessories' ? [] : PackStore.listClothingSubgroups(gender, tab);
+      if (searching) {
+        const hits = PackStore.searchClothing(gender, q);
+        const bankHits = PackStore.listAccessories().filter((a) =>
+          a.name.toLowerCase().includes(q.toLowerCase())
+        );
+        if (!hits.length && !bankHits.length) {
+          pillsInner = `<p class="cat-empty">No matches. Type a custom name below.</p>`;
         } else {
-          pillsInner = sections
-            .map((section) => {
-              if (!section.items.length) return '';
-              return `<p class="cat-group-label">${escapeHtml(section.label)}</p><div class="cat-pills">${section.items
-                .map((n) => pillButton(n, null, PackStore.clothingPhotoId(gender, tab, n)))
-                .join('')}</div>`;
-            })
-            .join('');
+          if (bankHits.length) {
+            pillsInner += `<p class="cat-group-label">Your accessories</p><div class="cat-pills">${bankHits
+              .map((a) => pillButton(a.name, a.category, a.photoId))
+              .join('')}</div>`;
+          }
+          if (hits.length) {
+            pillsInner += `<p class="cat-group-label">Categories</p><div class="cat-pills">${hits
+              .map((h) =>
+                pillButton(
+                  h.name,
+                  h.sub || h.group,
+                  PackStore.clothingPhotoId(gender, h.group, h.name) || PackStore.findItemPhotoId(h.name)
+                )
+              )
+              .join('')}</div>`;
+          }
         }
+      } else if (split.enabled) {
+        const option = (current) =>
+          tabs
+            .map((t) => `<option value="${escapeHtml(t)}"${t === current ? ' selected' : ''}>${escapeHtml(t)}</option>`)
+            .join('');
+        pillsInner = `
+          <div class="split-panes">
+            <div class="split-pane">
+              <label class="split-pane-label" for="split-left">Left</label>
+              <select class="input" id="split-left">${option(split.left)}</select>
+              <div class="split-pane-body">${tabPills(split.left)}</div>
+            </div>
+            <div class="split-pane">
+              <label class="split-pane-label" for="split-right">Right</label>
+              <select class="input" id="split-right">${option(split.right)}</select>
+              <div class="split-pane-body">${tabPills(split.right)}</div>
+            </div>
+          </div>
+        `;
+      } else {
+        pillsInner = tabPills(tab);
       }
 
       container.innerHTML = `
@@ -693,9 +738,12 @@
               : ''
           }
           <h3 class="cat-picker-heading">Select a category</h3>
-          <div class="gender-toggle" role="tablist" aria-label="Clothing fit">
-            <button type="button" class="gender-btn${gender === 'women' ? ' active' : ''}" data-gender="women">Women</button>
-            <button type="button" class="gender-btn${gender === 'men' ? ' active' : ''}" data-gender="men">Men</button>
+          <p class="hint" style="margin:-8px 0 12px">Tap a piece to add it. Tap again to take it off.</p>
+          <div class="cat-toolbar">
+            <button type="button" class="split-toggle${split.enabled ? ' active' : ''}" id="cat-split-toggle">
+              Split view
+            </button>
+            <button type="button" class="text-link" id="cat-add-category">Add category</button>
           </div>
           <div class="cat-search-wrap">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
@@ -704,7 +752,7 @@
             )}" autocomplete="off" />
           </div>
           ${
-            searching
+            searching || split.enabled
               ? ''
               : `<div class="cat-tabs" role="tablist">
                   ${tabs
@@ -772,14 +820,44 @@
 
       if (showBack) $('#cat-back', container).onclick = () => onBack && onBack();
 
-      $$('[data-gender]', container).forEach((btn) => {
-        btn.onclick = () => {
-          gender = btn.dataset.gender;
-          PackStore.setPref('clothingGender', gender);
-          tab = ClothingCatalog.tabsFor(gender)[0];
+      const splitToggle = $('#cat-split-toggle', container);
+      if (splitToggle) {
+        splitToggle.onclick = () => {
+          split = PackStore.setSplitView({ ...split, enabled: !split.enabled });
           paint();
         };
-      });
+      }
+      const addCatBtn = $('#cat-add-category', container);
+      if (addCatBtn) {
+        addCatBtn.onclick = () => {
+          const title = sheetTitle.textContent;
+          showAddCategorySheet({
+            kind: tab === 'Accessories' ? 'accessories' : 'clothing',
+            gender,
+            tab: tab === 'Accessories' ? undefined : tab,
+            stayOpen: true,
+            onSaved: () => {
+              sheetTitle.textContent = title;
+              paint();
+            },
+          });
+        };
+      }
+      const splitLeft = $('#split-left', container);
+      const splitRight = $('#split-right', container);
+      if (splitLeft) {
+        splitLeft.onchange = () => {
+          split = PackStore.setSplitView({ ...split, left: splitLeft.value });
+          tab = split.left;
+          paint();
+        };
+      }
+      if (splitRight) {
+        splitRight.onchange = () => {
+          split = PackStore.setSplitView({ ...split, right: splitRight.value });
+          paint();
+        };
+      }
 
       $$('[data-tab]', container).forEach((btn) => {
         btn.onclick = () => {
@@ -791,6 +869,12 @@
       $$('[data-pick]', container).forEach((btn) => {
         btn.onclick = () => {
           const name = btn.dataset.pick;
+          if (isPicked(name)) {
+            picked.delete(name.toLowerCase());
+            btn.classList.remove('picked');
+            if (onUnpick) onUnpick(name);
+            return;
+          }
           markPicked(name);
           btn.classList.add('picked');
           if (onPick) onPick(name);
@@ -880,9 +964,9 @@
     paint();
   }
 
-  function showCategoryPicker({ title, onPick, onClose } = {}) {
+  function showCategoryPicker({ title, onPick, onUnpick, onClose, selectedNames } = {}) {
     openSheet(title || 'Add item', '', { onClose });
-    mountCategoryPicker(sheetBody, { onPick });
+    mountCategoryPicker(sheetBody, { onPick, onUnpick, selectedNames });
   }
 
   // ——— Render: Trips list ———
@@ -929,7 +1013,13 @@
     trips.forEach((trip) => {
       const pack = PackStore.buildPackingList(trip.id);
       const outfitCount = trip.days.reduce((n, d) => n + (d.outfitIds?.length || 0), 0);
-      const extraCount = trip.days.reduce((n, d) => n + (d.items?.length || 0), 0);
+      const extraCount = trip.days.reduce(
+        (n, d) =>
+          n +
+          (d.items?.length || 0) +
+          (d.events || []).reduce((m, ev) => m + (ev.items?.length || 0), 0),
+        0
+      );
       const pct = pack.total ? Math.round((pack.packedCount / pack.total) * 100) : 0;
       const extrasBit = extraCount ? ` · ${plural(extraCount, 'extra', 'extras')}` : '';
       const btn = document.createElement('button');
@@ -966,7 +1056,11 @@
         <div class="field">
           <label for="trip-days">Number of days</label>
           <input class="input" id="trip-days" name="days" type="number" min="1" max="30" value="${PackStore.getPrefs().defaultTripDays}" required />
-          <p class="hint">You can add more than one outfit per day, plus extra items.</p>
+        </div>
+        <div class="field">
+          <label for="trip-start">Start date (optional)</label>
+          <input class="input" id="trip-start" type="date" />
+          <p class="hint">If you pick a date, days are named Monday, Tuesday, Wednesday… You can rename any day later.</p>
         </div>
         <button type="submit" class="btn btn-primary btn-block">Create trip</button>
       </form>
@@ -978,8 +1072,9 @@
       e.preventDefault();
       const name = $('#trip-name').value.trim();
       const days = Number($('#trip-days').value) || 1;
+      const startDate = $('#trip-start').value || null;
       if (!name) return;
-      const trip = PackStore.createTrip({ name, days });
+      const trip = PackStore.createTrip({ name, days, startDate });
       closeSheet();
       toast('Trip created');
       navigate(`trip/${trip.id}`);
@@ -987,6 +1082,140 @@
   }
 
   // ——— Render: Trip detail ———
+  function dayItemRow(trip, day, item, { tag = '', eventId = '' } = {}) {
+    const extra = document.createElement('div');
+    extra.className = 'day-item-row sortable-row';
+    extra.dataset.sortId = item.id;
+    extra.innerHTML = `
+      <button type="button" class="drag-handle" aria-label="Reorder ${escapeHtml(item.name)}">${GRIP_SVG}</button>
+      ${itemThumbHtml(PackStore.findItemPhotoId(item.name), 'pack-thumb')}
+      <span class="name">${escapeHtml(item.name)}</span>
+      ${tag ? `<span class="tag">${escapeHtml(tag)}</span>` : ''}
+      <button type="button" class="remove" aria-label="Remove ${escapeHtml(item.name)}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    `;
+    extra.querySelector('.remove').onclick = () => {
+      PackStore.removeItemFromDay(trip.id, day.id, item.id);
+      toast('Item removed from day');
+      render({ preserveScroll: true });
+    };
+    extra.dataset.eventId = eventId;
+    return extra;
+  }
+
+  function bindItemStack(stack, trip, day, eventId) {
+    bindRowSort(stack, (ids) => {
+      PackStore.reorderDayItems(trip.id, day.id, ids, eventId || undefined);
+    });
+  }
+
+  function showDayEditor(trip, day) {
+    const index = trip.days.findIndex((d) => d.id === day.id);
+    openSheet(
+      'Edit day',
+      `
+      <form id="day-edit-form">
+        <div class="field">
+          <label for="day-label">Name</label>
+          <input class="input" id="day-label" value="${escapeHtml(day.label || '')}" placeholder="Monday" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="day-date">Date</label>
+          <input class="input" id="day-date" type="date" value="${escapeHtml(day.date || '')}" />
+          <p class="hint">Pick a date to name this day Monday, Tuesday, and so on.</p>
+        </div>
+        <div class="field">
+          <label for="day-notes">Notes</label>
+          <textarea class="input" id="day-notes" rows="3" placeholder="Weather, reservations, reminders…">${escapeHtml(
+            day.notes || ''
+          )}</textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Save day</button>
+      </form>
+      ${
+        index === 0
+          ? `<div style="margin-top:12px"><button type="button" class="btn btn-secondary btn-block" id="apply-weekdays">Name every day from this date</button></div>`
+          : ''
+      }
+    `
+    );
+    $('#day-label').focus();
+    $('#day-date').onchange = () => {
+      const value = $('#day-date').value;
+      const label = $('#day-label');
+      if (value && PackStore.weekdayName(value) && (!label.value || label.value === day.label)) {
+        label.value = PackStore.weekdayName(value);
+      }
+    };
+    $('#day-edit-form').onsubmit = (e) => {
+      e.preventDefault();
+      PackStore.updateDay(trip.id, day.id, {
+        label: $('#day-label').value.trim(),
+        date: $('#day-date').value || null,
+        notes: $('#day-notes').value,
+      });
+      closeSheet();
+      toast('Day updated');
+      render({ preserveScroll: true });
+    };
+    const apply = $('#apply-weekdays');
+    if (apply) {
+      apply.onclick = () => {
+        const start = $('#day-date').value;
+        if (!start) {
+          toast('Pick a start date first');
+          return;
+        }
+        PackStore.applyWeekdayNames(trip.id, start);
+        closeSheet();
+        toast('Days named by weekday');
+        render({ preserveScroll: true });
+      };
+    }
+  }
+
+  function showAddEventToDay(trip, day) {
+    const presets = PackStore.DAY_EVENT_PRESETS;
+    openSheet(
+      `Add event to ${day.label}`,
+      `
+      <p class="hint" style="margin:0 0 12px">Group pieces by what you’ll do — brunch, a flight, the beach. Alternate is for backup looks.</p>
+      <div class="event-presets" id="event-presets"></div>
+      <form id="event-custom-form" style="margin-top:16px">
+        <div class="input-row">
+          <input class="input" id="event-custom-name" placeholder="Custom event name" autocomplete="off" />
+          <button type="submit" class="btn btn-secondary" style="min-width:72px">Add</button>
+        </div>
+      </form>
+    `
+    );
+    const wrap = $('#event-presets');
+    presets.forEach((name) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'event-preset';
+      btn.textContent = name;
+      btn.onclick = () => {
+        PackStore.addEventToDay(trip.id, day.id, { name });
+        closeSheet();
+        toast(`Added ${name}`);
+        render({ preserveScroll: true });
+      };
+      wrap.appendChild(btn);
+    });
+    $('#event-custom-form').onsubmit = (e) => {
+      e.preventDefault();
+      const name = $('#event-custom-name').value.trim();
+      if (!name) return;
+      PackStore.addEventToDay(trip.id, day.id, { name });
+      closeSheet();
+      toast(`Added ${name}`);
+      render({ preserveScroll: true });
+    };
+    $('#event-custom-name').focus();
+  }
+
   async function renderTrip() {
     const trip = PackStore.getTrip(route.params.id);
     if (!trip) {
@@ -1041,10 +1270,13 @@
 
     const daysEl = $('#days');
     for (const day of trip.days) {
-      const extraCount = day.items?.length || 0;
+      const extraCount =
+        (day.items?.length || 0) + (day.events || []).reduce((n, ev) => n + (ev.items?.length || 0), 0);
       const metaBits = [
+        day.date ? PackStore.formatDayDate(day.date) : null,
         plural(day.outfitIds.length, 'outfit', 'outfits'),
         extraCount ? plural(extraCount, 'extra', 'extras') : null,
+        day.events?.length ? plural(day.events.length, 'event', 'events') : null,
       ]
         .filter(Boolean)
         .join(' · ');
@@ -1052,20 +1284,28 @@
       const block = document.createElement('div');
       block.className = 'day-block';
       block.innerHTML = `
-        <div class="day-header">
-          <h3>${escapeHtml(day.label)}</h3>
-          <span class="section-meta">${metaBits}</span>
-        </div>
+        <button type="button" class="day-header day-header-btn">
+          <div>
+            <h3>${escapeHtml(day.label)}</h3>
+            ${day.notes ? `<p class="day-notes-preview">${escapeHtml(day.notes)}</p>` : ''}
+          </div>
+          <span class="section-meta">${metaBits || 'Tap to name'}</span>
+        </button>
         <div class="day-outfits" data-day="${day.id}"></div>
       `;
+      $('.day-header-btn', block).onclick = () => showDayEditor(trip, day);
       const container = $('.day-outfits', block);
 
+      const outfitStack = document.createElement('div');
+      outfitStack.className = 'stack day-outfit-stack';
       for (const oid of day.outfitIds) {
         const outfit = outfitMap.get(oid);
         const row = document.createElement('div');
-        row.className = 'outfit-pick';
+        row.className = 'outfit-pick sortable-row';
+        row.dataset.sortId = oid;
         if (!outfit) {
           row.innerHTML = `
+            <button type="button" class="drag-handle" aria-label="Reorder outfit">${GRIP_SVG}</button>
             <div class="thumb">?</div>
             <div class="info"><strong>Missing outfit</strong><span>Removed from library</span></div>
             <button type="button" class="remove" aria-label="Remove" data-remove="${oid}">
@@ -1074,6 +1314,7 @@
           `;
         } else {
           row.innerHTML = `
+            <button type="button" class="drag-handle" aria-label="Reorder ${escapeHtml(outfit.name)}">${GRIP_SVG}</button>
             <div class="thumb" data-photo-id="${outfit.photoId || ''}">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M20.38 3.46L16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/></svg>
             </div>
@@ -1094,37 +1335,68 @@
           e.stopPropagation();
           PackStore.removeOutfitFromDay(trip.id, day.id, oid);
           toast('Outfit removed from day');
-          render();
+          render({ preserveScroll: true });
         };
-        container.appendChild(row);
+        outfitStack.appendChild(row);
+      }
+      if (day.outfitIds.length) {
+        bindRowSort(outfitStack, (ids) => PackStore.reorderDayOutfits(trip.id, day.id, ids));
+        container.appendChild(outfitStack);
+      }
+
+      const eventsStack = document.createElement('div');
+      eventsStack.className = 'stack day-events-stack';
+      (day.events || []).forEach((ev) => {
+        const card = document.createElement('div');
+        card.className = 'day-event sortable-row';
+        card.dataset.sortId = ev.id;
+        card.innerHTML = `
+          <div class="day-event-head">
+            <button type="button" class="drag-handle" aria-label="Reorder ${escapeHtml(ev.name)}">${GRIP_SVG}</button>
+            <strong>${escapeHtml(ev.name)}</strong>
+            <button type="button" class="remove" aria-label="Remove ${escapeHtml(ev.name)}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+        `;
+        card.querySelector('.remove').onclick = () => {
+          if (!askConfirm(`Remove “${ev.name}” and its items from this day?`)) return;
+          PackStore.removeEventFromDay(trip.id, day.id, ev.id);
+          toast('Event removed');
+          render({ preserveScroll: true });
+        };
+        const itemsWrap = document.createElement('div');
+        itemsWrap.className = 'day-extras';
+        (ev.items || []).forEach((item) => {
+          itemsWrap.appendChild(dayItemRow(trip, day, item, { eventId: ev.id }));
+        });
+        bindItemStack(itemsWrap, trip, day, ev.id);
+        card.appendChild(itemsWrap);
+        const addItem = document.createElement('button');
+        addItem.type = 'button';
+        addItem.className = 'add-outfit-btn day-event-add';
+        addItem.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> Item`;
+        addItem.onclick = () => showAddItemToDay(trip, day, ev.id);
+        card.appendChild(addItem);
+        eventsStack.appendChild(card);
+      });
+      if ((day.events || []).length) {
+        bindRowSort(eventsStack, (ids) => PackStore.reorderDayEvents(trip.id, day.id, ids));
+        container.appendChild(eventsStack);
       }
 
       if (day.items?.length) {
         const extrasWrap = document.createElement('div');
         extrasWrap.className = 'day-extras';
         day.items.forEach((item) => {
-          const extra = document.createElement('div');
-          extra.className = 'day-item-row';
-          extra.innerHTML = `
-            ${itemThumbHtml(PackStore.findItemPhotoId(item.name), 'pack-thumb')}
-            <span class="name">${escapeHtml(item.name)}</span>
-            <span class="tag">This day</span>
-            <button type="button" class="remove" aria-label="Remove ${escapeHtml(item.name)}">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-            </button>
-          `;
-          extra.querySelector('.remove').onclick = () => {
-            PackStore.removeItemFromDay(trip.id, day.id, item.id);
-            toast('Item removed from day');
-            render();
-          };
-          extrasWrap.appendChild(extra);
+          extrasWrap.appendChild(dayItemRow(trip, day, item, { tag: 'This day' }));
         });
+        bindItemStack(extrasWrap, trip, day);
         container.appendChild(extrasWrap);
       }
 
       const addRow = document.createElement('div');
-      addRow.className = 'day-add-row';
+      addRow.className = 'day-add-row day-add-row-4';
       addRow.innerHTML = `
         <button type="button" class="add-outfit-btn" data-add="outfit">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
@@ -1134,9 +1406,19 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
           Item
         </button>
+        <button type="button" class="add-outfit-btn" data-add="event">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          Event
+        </button>
+        <button type="button" class="add-outfit-btn" data-add="notes">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          Notes
+        </button>
       `;
       addRow.querySelector('[data-add="outfit"]').onclick = () => showAddOutfitToDay(trip, day);
       addRow.querySelector('[data-add="item"]').onclick = () => showAddItemToDay(trip, day);
+      addRow.querySelector('[data-add="event"]').onclick = () => showAddEventToDay(trip, day);
+      addRow.querySelector('[data-add="notes"]').onclick = () => showDayEditor(trip, day);
       container.appendChild(addRow);
       daysEl.appendChild(block);
     }
@@ -1160,13 +1442,20 @@
         <h2 class="section-title">Staples this trip</h2>
         <span class="section-meta">${tripStaples.active.length} coming along</span>
       </div>
-      ${hintHtml('trip-staples', 'Remove gloves for a summer trip — they stay in your usual staples for the next one.')}
+      ${hintHtml('trip-staples', 'Remove gloves for a summer trip — they stay in your usual staples for the next one. Select several at once if you’re skipping a whole group.')}
       <div id="trip-staple-groups"></div>
       <div class="day-add-row" style="margin-top:10px">
         <button type="button" class="add-outfit-btn" id="add-trip-staple">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
           Add staple
         </button>
+        ${
+          tripStaples.active.length
+            ? `<button type="button" class="add-outfit-btn" id="select-trip-staples">${
+                tripStapleSelecting ? 'Cancel' : 'Select'
+              }</button>`
+            : ''
+        }
         ${
           hiddenCount
             ? `<button type="button" class="add-outfit-btn" id="restore-trip-staples">Restore ${plural(
@@ -1177,6 +1466,13 @@
             : `<button type="button" class="add-outfit-btn" id="manage-trip-staples">Manage list</button>`
         }
       </div>
+      ${
+        tripStapleSelecting
+          ? `<div class="sticky-cta bulk-staple-bar"><button type="button" class="btn btn-danger btn-block" id="bulk-remove-staples" ${
+              tripStapleSelected.size ? '' : 'disabled'
+            }>Remove ${tripStapleSelected.size || ''} from this trip</button></div>`
+          : ''
+      }
     `;
 
     const groupsEl = $('#trip-staple-groups', el);
@@ -1190,19 +1486,45 @@
         items.forEach((s) => {
           const row = document.createElement('div');
           row.className = 'staple-row compact';
+          const checked = tripStapleSelected.has(`${s.source}:${s.id}`);
           row.innerHTML = `
+            ${
+              tripStapleSelecting
+                ? `<label class="bulk-check"><input type="checkbox" ${checked ? 'checked' : ''} aria-label="Select ${escapeHtml(
+                    s.name
+                  )}" /></label>`
+                : ''
+            }
             ${itemThumbHtml(s.photoId, 'pack-thumb')}
             <span class="name">${escapeHtml(s.name)}</span>
             ${s.source === 'trip' ? '<span class="tag">This trip</span>' : ''}
-            <button type="button" class="del" aria-label="Remove ${escapeHtml(s.name)} from this trip">
+            ${
+              tripStapleSelecting
+                ? ''
+                : `<button type="button" class="del" aria-label="Remove ${escapeHtml(s.name)} from this trip">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-            </button>
+            </button>`
+            }
           `;
-          row.querySelector('.del').onclick = () => {
-            PackStore.removeTripStaple(trip.id, s.id, s.source);
-            toast('Removed from this trip');
-            render();
-          };
+          if (tripStapleSelecting) {
+            const box = row.querySelector('input');
+            box.onchange = () => {
+              const key = `${s.source}:${s.id}`;
+              if (box.checked) tripStapleSelected.add(key);
+              else tripStapleSelected.delete(key);
+              const bulk = $('#bulk-remove-staples');
+              if (bulk) {
+                bulk.disabled = !tripStapleSelected.size;
+                bulk.textContent = `Remove ${tripStapleSelected.size || ''} from this trip`;
+              }
+            };
+          } else {
+            row.querySelector('.del').onclick = () => {
+              PackStore.removeTripStaple(trip.id, s.id, s.source);
+              toast('Removed from this trip');
+              render({ preserveScroll: true });
+            };
+          }
           block.appendChild(row);
         });
         groupsEl.appendChild(block);
@@ -1210,6 +1532,29 @@
     }
 
     $('#add-trip-staple', el).onclick = () => showAddTripStaple(trip);
+    const selectBtn = $('#select-trip-staples', el);
+    if (selectBtn) {
+      selectBtn.onclick = () => {
+        tripStapleSelecting = !tripStapleSelecting;
+        if (!tripStapleSelecting) tripStapleSelected.clear();
+        render({ preserveScroll: true });
+      };
+    }
+    const bulkBtn = $('#bulk-remove-staples', el);
+    if (bulkBtn) {
+      bulkBtn.onclick = () => {
+        if (!tripStapleSelected.size) return;
+        const removals = [...tripStapleSelected].map((key) => {
+          const idx = key.indexOf(':');
+          return { source: key.slice(0, idx), id: key.slice(idx + 1) };
+        });
+        PackStore.removeTripStaples(trip.id, removals);
+        toast(`Removed ${plural(removals.length, 'staple', 'staples')}`);
+        tripStapleSelecting = false;
+        tripStapleSelected.clear();
+        render({ preserveScroll: true });
+      };
+    }
     const restoreBtn = $('#restore-trip-staples', el);
     if (restoreBtn) restoreBtn.onclick = () => showTripStaplesSheet(trip);
     const manageBtn = $('#manage-trip-staples', el);
@@ -1248,7 +1593,7 @@
       if (result.action === 'restored') toast('Restored from your usual list');
       else if (result.action === 'exists') toast('Already on this trip');
       else toast('Added for this trip');
-      render();
+      render({ preserveScroll: true });
     };
   }
 
@@ -1278,20 +1623,29 @@
         PackStore.restoreStapleToTrip(trip.id, s.id);
         toast(`Restored ${s.name}`);
         closeSheet();
-        render();
+        render({ preserveScroll: true });
       };
       wrap.appendChild(row);
     });
   }
 
-  function showAddItemToDay(trip, day) {
+  function showAddItemToDay(trip, day, eventId) {
+    const event = eventId ? (day.events || []).find((ev) => ev.id === eventId) : null;
+    const selectedNames = event
+      ? (event.items || []).map((item) => item.name)
+      : PackStore.dayAllItemNames(day);
     showCategoryPicker({
-      title: `Add to ${day.label}`,
+      title: event ? `Add to ${event.name}` : `Add to ${day.label}`,
+      selectedNames,
       onPick: (name) => {
-        PackStore.addItemToDay(trip.id, day.id, { name });
+        PackStore.addItemToDay(trip.id, day.id, { name, eventId });
         toast(`Added ${name}`);
       },
-      onClose: () => render(),
+      onUnpick: (name) => {
+        PackStore.removeItemFromDayByName(trip.id, day.id, name, eventId);
+        toast(`Removed ${name}`);
+      },
+      onClose: () => render({ preserveScroll: true }),
     });
   }
 
@@ -1416,15 +1770,38 @@
       });
 
       if (hasExtras) {
-        if (prefs.showOutfitHeadings) {
-          const sub = document.createElement('div');
-          sub.className = 'pack-outfit-label';
-          sub.textContent = 'Added to this day';
-          list.appendChild(sub);
+        const eventGroups = new Map();
+        const loose = [];
+        day.extras.forEach((item) => {
+          if (item.eventName) {
+            if (!eventGroups.has(item.eventName)) eventGroups.set(item.eventName, []);
+            eventGroups.get(item.eventName).push(item);
+          } else {
+            loose.push(item);
+          }
+        });
+        eventGroups.forEach((items, eventName) => {
+          if (prefs.showOutfitHeadings) {
+            const sub = document.createElement('div');
+            sub.className = 'pack-outfit-label';
+            sub.textContent = eventName;
+            list.appendChild(sub);
+          }
+          items.forEach((item) =>
+            appendCheckItem(list, trip, item, prefs, { nested: prefs.showOutfitHeadings })
+          );
+        });
+        if (loose.length) {
+          if (prefs.showOutfitHeadings) {
+            const sub = document.createElement('div');
+            sub.className = 'pack-outfit-label';
+            sub.textContent = 'Added to this day';
+            list.appendChild(sub);
+          }
+          loose.forEach((item) =>
+            appendCheckItem(list, trip, item, prefs, { nested: prefs.showOutfitHeadings })
+          );
         }
-        day.extras.forEach((item) =>
-          appendCheckItem(list, trip, item, prefs, { nested: prefs.showOutfitHeadings })
-        );
       }
     });
 
@@ -1587,6 +1964,11 @@
           <input class="input" id="edit-trip-days" type="number" min="1" max="30" value="${trip.days.length}" required />
           <p class="hint">Reducing days removes outfits and extras from the last days.</p>
         </div>
+        <div class="field">
+          <label for="edit-trip-start">Start date</label>
+          <input class="input" id="edit-trip-start" type="date" value="${escapeHtml(trip.days[0]?.date || '')}" />
+          <p class="hint">Names days Monday–Sunday from this date. Custom day names stay unless they were still “Day 1”.</p>
+        </div>
         <button type="submit" class="btn btn-primary btn-block">Save</button>
       </form>
       <div style="margin-top:20px">
@@ -1599,8 +1981,9 @@
       e.preventDefault();
       const name = $('#edit-trip-name').value.trim();
       const days = Number($('#edit-trip-days').value) || 1;
+      const startDate = $('#edit-trip-start').value || null;
       PackStore.updateTrip(trip.id, { name });
-      PackStore.setTripDays(trip.id, days);
+      PackStore.setTripDays(trip.id, days, startDate);
       closeSheet();
       toast('Trip updated');
       render();
@@ -1636,7 +2019,7 @@
         onSaved: (outfit) => {
           PackStore.addOutfitToDay(trip.id, day.id, outfit.id);
           toast(`Added “${outfit.name}”`);
-          render();
+          render({ preserveScroll: true });
         },
       });
     };
@@ -1664,7 +2047,7 @@
           PackStore.addOutfitToDay(trip.id, day.id, outfit.id);
           closeSheet();
           toast(`Added “${outfit.name}”`);
-          render();
+          render({ preserveScroll: true });
         };
       }
       picker.appendChild(opt);
@@ -1769,8 +2152,12 @@
       <div class="section">
         ${hintHtml(
           'accessories',
-          'Jewelry, bags, and shoes you actually pack. Add “white sneakers” or “chunky gold necklace” once, then tap them onto outfits or days.'
+          'Jewelry, bags, hats, scarves, belts, and shoes you actually pack. Add “white sneakers” or “chunky gold necklace” once, then tap them onto outfits or days.'
         )}
+        <div class="cat-toolbar">
+          <button type="button" class="text-link" id="acc-add-category">Add category</button>
+          <button type="button" class="text-link" id="acc-manage-categories">Edit categories</button>
+        </div>
         <div id="accessories-list"></div>
       </div>
       <div class="sticky-cta">
@@ -1780,6 +2167,9 @@
 
     bindClosetSegments();
     bindHints();
+    $('#acc-add-category').onclick = () =>
+      showAddCategorySheet({ kind: 'accessories', onSaved: () => render() });
+    $('#acc-manage-categories').onclick = () => showManageCategoriesSheet({ kind: 'accessories' });
 
     const list = $('#accessories-list');
     const order = PackStore.listAccessoryCategories().concat(
@@ -1791,8 +2181,12 @@
       stack.className = 'stack';
       items.forEach((a) => {
         const row = document.createElement('div');
-        row.className = 'staple-row library-row';
+        row.className = 'staple-row library-row sortable-row';
+        row.dataset.sortId = a.id;
         row.innerHTML = `
+          <button type="button" class="drag-handle" aria-label="Reorder ${escapeHtml(a.name)}">
+            ${GRIP_SVG}
+          </button>
           <button type="button" class="library-edit" aria-label="Edit ${escapeHtml(a.name)}">
             ${itemThumbHtml(a.photoId)}
             <span class="name">${escapeHtml(a.name)}</span>
@@ -1812,6 +2206,7 @@
         };
         stack.appendChild(row);
       });
+      bindRowSort(stack, (ids) => PackStore.reorderAccessories(ids));
       return stack;
     }
 
@@ -1988,22 +2383,18 @@
     };
   }
 
-  function clothesHash(tab, gender) {
+  function clothesHash(tab) {
     const params = [];
     if (tab) params.push(`tab=${encodeURIComponent(tab)}`);
-    if (gender) params.push(`gender=${encodeURIComponent(gender)}`);
     return params.length ? `clothes?${params.join('&')}` : 'clothes';
   }
 
   function renderClothes() {
-    let gender = route.params.gender || PackStore.getPrefs().clothingGender || 'women';
-    gender = gender === 'men' ? 'men' : 'women';
+    const gender = 'women';
     const tabs = PackStore.listClothingTabs(gender);
     let tab = route.params.tab;
     if (!tabs.includes(tab)) tab = tabs[0];
-    const sections = PackStore.listClothingSections(gender, tab);
-    const hasItems = sections.some((section) => section.items.length);
-    const hasSubs = sections.some((section) => section.label);
+    const split = PackStore.getSplitView();
 
     setChrome({
       title: 'Closet',
@@ -2020,13 +2411,14 @@
       <div class="section">
         ${hintHtml(
           'clothes',
-          'This is your Tops, Bottoms, and everything else — the same lists you tap when packing a day. Drag the grip to put pieces in the order you like.'
+          'This is your Tops, Bottoms, and everything else — the same lists you tap when packing a day. Drag the grip to put pieces in the order you like. Split view shows two categories at once, like Tops and Bottoms.'
         )}
-        <div class="gender-toggle" role="tablist" aria-label="Clothing fit">
-          <button type="button" class="gender-btn${gender === 'women' ? ' active' : ''}" data-gender="women">Women</button>
-          <button type="button" class="gender-btn${gender === 'men' ? ' active' : ''}" data-gender="men">Men</button>
+        <div class="cat-toolbar">
+          <button type="button" class="split-toggle${split.enabled ? ' active' : ''}" id="clothes-split-toggle">Split view</button>
+          <button type="button" class="text-link" id="clothes-add-category">Add category</button>
+          <button type="button" class="text-link" id="clothes-manage-categories">Edit categories</button>
         </div>
-        <div class="cat-tabs clothes-tabs" role="tablist">
+        <div class="cat-tabs clothes-tabs${split.enabled ? ' hidden' : ''}" role="tablist">
           ${tabs
             .map(
               (t) =>
@@ -2048,53 +2440,105 @@
     bindClosetSegments();
     bindHints();
 
-    $$('[data-gender]', main).forEach((btn) => {
-      btn.onclick = () => {
-        const nextGender = btn.dataset.gender;
-        PackStore.setPref('clothingGender', nextGender);
-        const nextTabs = PackStore.listClothingTabs(nextGender);
-        const nextTab = nextTabs.includes(tab) ? tab : '';
-        navigate(clothesHash(nextTab, nextGender));
-      };
-    });
+    $('#clothes-split-toggle').onclick = () => {
+      PackStore.setSplitView({ enabled: !split.enabled });
+      render();
+    };
+    $('#clothes-add-category').onclick = () =>
+      showAddCategorySheet({ gender, tab, onSaved: () => render() });
+    $('#clothes-manage-categories').onclick = () =>
+      showManageCategoriesSheet({ kind: 'clothing', gender, tab });
     $$('[data-tab]', main).forEach((btn) => {
-      btn.onclick = () => navigate(clothesHash(btn.dataset.tab, gender));
+      btn.onclick = () => navigate(clothesHash(btn.dataset.tab));
     });
 
     const list = $('#clothes-list');
-    if (!hasItems && !hasSubs) {
-      list.innerHTML = `
-        <div class="empty" style="padding-top:8px">
-          <h2 style="font-size:22px">Nothing in ${escapeHtml(tab)}</h2>
-          <p>Add the ${escapeHtml(tab.toLowerCase())} you actually pack — a specific brand of jeans, the tee you always bring.</p>
-        </div>
-      `;
-    } else if (!hasSubs) {
-      list.appendChild(buildClothingStack(gender, tab, sections[0].items));
-    } else {
-      sections.forEach((section) => {
+    function paneSelect(id, current) {
+      const select = document.createElement('select');
+      select.className = 'input';
+      select.id = id;
+      tabs.forEach((t) => {
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.selected = t === current;
+        opt.textContent = t;
+        select.appendChild(opt);
+      });
+      return select;
+    }
+
+    function fillPane(host, paneTab) {
+      const paneSections = PackStore.listClothingSections(gender, paneTab);
+      const paneHasItems = paneSections.some((section) => section.items.length);
+      const paneHasSubs = paneSections.some((section) => section.label);
+      if (!paneHasItems && !paneHasSubs) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.style.paddingTop = '8px';
+        empty.innerHTML = `<h2 style="font-size:18px">Nothing in ${escapeHtml(paneTab)}</h2><p>Add the pieces you actually pack.</p>`;
+        host.appendChild(empty);
+        return;
+      }
+      if (!paneHasSubs) {
+        host.appendChild(buildClothingStack(gender, paneTab, paneSections[0].items));
+        return;
+      }
+      paneSections.forEach((section) => {
         const block = document.createElement('div');
         block.className = 'clothes-subgroup';
         block.innerHTML = `
           <div class="section-head">
             <h2 class="section-title">${escapeHtml(section.label)}</h2>
-            <button type="button" class="clothes-sub-add" data-sub="${escapeHtml(section.id)}">Add</button>
+            <button type="button" class="clothes-sub-add" data-tab="${escapeHtml(paneTab)}" data-sub="${escapeHtml(section.id)}">Add</button>
           </div>
         `;
         if (section.items.length) {
-          block.appendChild(buildClothingStack(gender, tab, section.items, section.id));
+          block.appendChild(buildClothingStack(gender, paneTab, section.items, section.id));
         } else {
           const empty = document.createElement('p');
           empty.className = 'clothes-sub-empty';
           empty.textContent = `Nothing in ${section.label} yet.`;
           block.appendChild(empty);
         }
-        list.appendChild(block);
-      });
-      $$('.clothes-sub-add', list).forEach((btn) => {
-        btn.onclick = () => showClothingEditor({ gender, tab, sub: btn.dataset.sub });
+        host.appendChild(block);
       });
     }
+
+    if (split.enabled) {
+      list.className = 'split-panes clothes-split';
+      const left = document.createElement('div');
+      left.className = 'split-pane';
+      const right = document.createElement('div');
+      right.className = 'split-pane';
+      const leftSelect = paneSelect('clothes-split-left', split.left);
+      const rightSelect = paneSelect('clothes-split-right', split.right);
+      left.appendChild(leftSelect);
+      right.appendChild(rightSelect);
+      const leftBody = document.createElement('div');
+      leftBody.className = 'split-pane-body';
+      const rightBody = document.createElement('div');
+      rightBody.className = 'split-pane-body';
+      fillPane(leftBody, split.left);
+      fillPane(rightBody, split.right);
+      left.appendChild(leftBody);
+      right.appendChild(rightBody);
+      list.appendChild(left);
+      list.appendChild(right);
+      leftSelect.onchange = () => {
+        PackStore.setSplitView({ left: leftSelect.value });
+        render();
+      };
+      rightSelect.onchange = () => {
+        PackStore.setSplitView({ right: rightSelect.value });
+        render();
+      };
+    } else {
+      fillPane(list, tab);
+    }
+    $$('.clothes-sub-add', list).forEach((btn) => {
+      btn.onclick = () =>
+        showClothingEditor({ gender, tab: btn.dataset.tab || tab, sub: btn.dataset.sub });
+    });
 
     $('#add-clothes-btn').onclick = () => showClothingEditor({ gender, tab });
     if (PackStore.getPrefs().showPhotos) fillPhotoSlots(list);
@@ -2244,7 +2688,7 @@
           closeSheet();
           if (result.action === 'exists') toast('That name is already on this list');
           else toast('Updated');
-          navigate(clothesHash(result.tab || nextTab, gender));
+          navigate(clothesHash(result.tab || nextTab));
           return;
         }
         const result = PackStore.addClothingItem(gender, nextTab, nextName, nextSub || undefined);
@@ -2254,7 +2698,7 @@
         closeSheet();
         if (result.action === 'exists') toast('Already on this list');
         else toast(result.sub ? `Saved to ${nextTab} · ${result.sub}` : `Saved to ${nextTab}`);
-        navigate(clothesHash(nextTab, gender));
+        navigate(clothesHash(nextTab));
       } catch {
         toast('Could not save photo');
       }
@@ -2487,9 +2931,14 @@
       mountCategoryPicker(sheetBody, {
         showBack: true,
         onBack: renderForm,
+        selectedNames: items,
         onPick: (name) => {
           if (!items.some((i) => i.toLowerCase() === name.toLowerCase())) items.push(name);
           toast(`Added ${name}`);
+        },
+        onUnpick: (name) => {
+          items = items.filter((i) => i.toLowerCase() !== name.toLowerCase());
+          toast(`Removed ${name}`);
         },
       });
     }
@@ -2547,8 +2996,12 @@
         const stack = $('.stack', section);
         items.forEach((s) => {
           const row = document.createElement('div');
-          row.className = 'staple-row library-row';
+          row.className = 'staple-row library-row sortable-row';
+          row.dataset.sortId = s.id;
           row.innerHTML = `
+            <button type="button" class="drag-handle" aria-label="Reorder ${escapeHtml(s.name)}">
+              ${GRIP_SVG}
+            </button>
             <button type="button" class="library-edit" aria-label="Edit ${escapeHtml(s.name)}">
               ${itemThumbHtml(s.photoId)}
               <span class="name">${escapeHtml(s.name)}</span>
@@ -2568,6 +3021,7 @@
           };
           stack.appendChild(row);
         });
+        bindRowSort(stack, (ids) => PackStore.reorderStaples(ids));
         list.appendChild(section);
       });
     }
@@ -2685,10 +3139,6 @@
           keywords: 'trip days gender women men empty packed photos confirm delete start tab default length clothing hide outfit names',
           html: () => `<div class="settings-list">
             ${settingStepper('defaultTripDays', 'Default trip length', 'Used when you create a new trip.', prefs.defaultTripDays, 1, 30)}
-            ${settingSelect('clothingGender', 'Clothing categories', 'Default for the category picker.', [
-              ['women', 'Women'],
-              ['men', 'Men'],
-            ], prefs.clothingGender)}
             ${settingSelect('startingTab', 'Open app to', 'First screen after launch.', [
               ['trips', 'Trips'],
               ['outfits', 'Closet'],
@@ -2716,7 +3166,8 @@
             ${settingNav('your-clothes', 'Your clothes', clothesNote)}
             ${settingNav('your-accessories', 'Your jewelry & accessories', 'Add your own pieces — white sneakers, chunky gold necklace, bags.')}
             ${settingNav('staple-cats', 'Staple categories', prefs.stapleCategories.join(', '))}
-            ${settingNav('accessory-cats', 'Accessory groups', 'Folders like Jewelry, Bags, and Shoes — not individual pieces.')}
+            ${settingNav('accessory-cats', 'Accessory groups', PackStore.listAccessoryCategories().join(', '))}
+            ${settingNav('clothing-cats', 'Clothing categories', PackStore.listClothingTabs('women').join(', '))}
             ${settingAction('restore-clothes', 'Restore hidden clothes', 'Puts back starter Tops, Bottoms, and the rest you deleted. Keeps your own items.')}
             ${settingAction('restore-staples', 'Restore missing staples', 'Adds default items you deleted, like Gloves.')}
             ${settingAction('restore-accessories', 'Restore starter accessories', 'Puts back the generic sample items if you deleted them.')}
@@ -2750,7 +3201,7 @@
             <div class="settings-row">
               <div class="settings-row-copy">
                 <strong>Packlist</strong>
-                <span>Version 4 · Everything stays on this device. Clearing Safari site data erases it.</span>
+                <span>Version 5 · Everything stays on this device. Clearing Safari site data erases it.</span>
               </div>
             </div>
           </div>`,
@@ -2873,6 +3324,10 @@
             navigate('accessories');
             return;
           }
+          if (btn.dataset.nav === 'clothing-cats') {
+            showManageCategoriesSheet({ kind: 'clothing', gender: 'women' });
+            return;
+          }
           showCategoryManager(btn.dataset.nav);
         };
       });
@@ -2897,6 +3352,193 @@
     const search = $('#settings-search');
     search.oninput = () => paint(search.value);
     paint();
+  }
+
+  function showAddCategorySheet({ kind, gender = 'women', tab, onSaved, stayOpen = false } = {}) {
+    const clothing = kind !== 'accessories';
+    const headings = clothing
+      ? PackStore.listClothingTabs(gender)
+      : PackStore.listAccessoryCategories();
+    const defaultHeading = tab && headings.includes(tab) ? tab : headings[0];
+    openSheet(
+      clothing ? 'Add clothing category' : 'Add accessory category',
+      `
+      <form id="add-cat-form">
+        <div class="field">
+          <label for="add-cat-name">Name</label>
+          <input class="input" id="add-cat-name" placeholder="${
+            clothing ? 'e.g. Knitwear' : 'e.g. Bracelets'
+          }" required autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="add-cat-scope">Where</label>
+          <select class="input" id="add-cat-scope">
+            <option value="sub">Under ${escapeHtml(defaultHeading || 'a heading')}</option>
+            <option value="heading">New major heading</option>
+          </select>
+        </div>
+        <div class="field" id="add-cat-parent-field">
+          <label for="add-cat-parent">${clothing ? 'Clothing heading' : 'Accessory group'}</label>
+          <select class="input" id="add-cat-parent">
+            ${optionHtml(headings, defaultHeading)}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Add category</button>
+      </form>
+    `,
+      stayOpen && onSaved ? { onClose: onSaved } : {}
+    );
+    const sync = () => {
+      $('#add-cat-parent-field').style.display = $('#add-cat-scope').value === 'sub' ? '' : 'none';
+    };
+    $('#add-cat-scope').onchange = sync;
+    sync();
+    $('#add-cat-name').focus();
+    $('#add-cat-form').onsubmit = (e) => {
+      e.preventDefault();
+      const name = $('#add-cat-name').value.trim();
+      if (!name) return;
+      const scope = $('#add-cat-scope').value;
+      let result;
+      if (clothing) {
+        result =
+          scope === 'heading'
+            ? PackStore.addClothingTab(gender, name)
+            : PackStore.addClothingSubgroup(gender, $('#add-cat-parent').value, name);
+      } else {
+        result =
+          scope === 'heading'
+            ? PackStore.addAccessoryCategory(name)
+            : PackStore.addAccessorySubgroup($('#add-cat-parent').value, name);
+      }
+      if (result.action === 'exists') {
+        toast('That category already exists');
+        return;
+      }
+      if (result.action === 'empty') return;
+      if (!stayOpen) closeSheet();
+      toast(`Added ${result.name}`);
+      if (onSaved) onSaved(result);
+      else render();
+    };
+  }
+
+  function showManageCategoriesSheet({ kind, gender = 'women', tab } = {}) {
+    const clothing = kind !== 'accessories';
+
+    function paintSheet() {
+      const headings = clothing ? PackStore.listClothingTabs(gender) : PackStore.listAccessoryCategories();
+      const current = tab && headings.includes(tab) ? tab : headings[0];
+      const subs = clothing
+        ? PackStore.listClothingSubgroups(gender, current)
+        : PackStore.listAccessorySubgroups(current);
+      sheetTitle.textContent = clothing ? 'Clothing categories' : 'Accessory categories';
+      sheetBody.innerHTML = `
+        <p class="hint" style="margin:0 0 12px">Rename or remove headings, and add types underneath them — like Bracelets under Jewelry, or Hats as its own group.</p>
+        <div class="field">
+          <label for="manage-heading">Heading</label>
+          <select class="input" id="manage-heading">${optionHtml(headings, current)}</select>
+        </div>
+        <div class="btn-row" style="margin:10px 0 16px">
+          <button type="button" class="btn btn-secondary" id="rename-heading">Rename</button>
+          <button type="button" class="btn btn-ghost" id="remove-heading" style="color:var(--danger)">Remove</button>
+        </div>
+        <h3 class="cat-group-label">Types in ${escapeHtml(current)}</h3>
+        <div class="stack" id="manage-sub-list"></div>
+        <form id="manage-sub-form" style="margin-top:12px">
+          <div class="input-row">
+            <input class="input" id="manage-sub-input" placeholder="New type" autocomplete="off" />
+            <button type="submit" class="btn btn-secondary" style="min-width:72px">Add</button>
+          </div>
+        </form>
+        <button type="button" class="btn btn-primary btn-block" id="add-heading" style="margin-top:16px">New heading</button>
+      `;
+      const list = $('#manage-sub-list');
+      if (!subs.length) {
+        list.innerHTML = `<p class="cat-empty">No types yet. Add one, or keep this heading as a flat list.</p>`;
+      } else {
+        subs.forEach((sub) => {
+          const row = document.createElement('div');
+          row.className = 'staple-row';
+          row.innerHTML = `
+            <span class="name">${escapeHtml(sub)}</span>
+            <button type="button" class="btn btn-ghost" data-rename style="min-height:36px;padding:6px 10px;font-size:13px">Rename</button>
+            <button type="button" class="del" aria-label="Remove ${escapeHtml(sub)}">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          `;
+          row.querySelector('[data-rename]').onclick = () => {
+            const next = prompt('Rename category', sub);
+            if (!next || next.trim() === sub) return;
+            const result = clothing
+              ? PackStore.renameClothingSubgroup(gender, current, sub, next)
+              : PackStore.renameAccessorySubgroup(current, sub, next);
+            if (result.action === 'exists') toast('That name is already used');
+            else paintSheet();
+          };
+          row.querySelector('.del').onclick = () => {
+            if (!askConfirm(`Remove “${sub}”? Items stay, they just leave this type.`)) return;
+            if (clothing) PackStore.removeClothingSubgroup(gender, current, sub);
+            else PackStore.removeAccessorySubgroup(current, sub);
+            paintSheet();
+          };
+          list.appendChild(row);
+        });
+      }
+      $('#manage-heading').onchange = () => {
+        tab = $('#manage-heading').value;
+        paintSheet();
+      };
+      $('#rename-heading').onclick = () => {
+        const next = prompt('Rename heading', current);
+        if (!next || next.trim() === current) return;
+        const result = clothing
+          ? PackStore.renameClothingTab(gender, current, next)
+          : PackStore.renameAccessoryCategory(current, next);
+        if (result.action === 'exists') toast('That name is already used');
+        else {
+          tab = result.name || next;
+          paintSheet();
+        }
+      };
+      $('#remove-heading').onclick = () => {
+        if (!askConfirm(`Remove “${current}”?`)) return;
+        const result = clothing
+          ? PackStore.removeClothingTab(gender, current)
+          : PackStore.removeAccessoryCategory(current);
+        if (result.action === 'last') toast('Keep at least one heading');
+        else {
+          tab = '';
+          paintSheet();
+        }
+      };
+      $('#add-heading').onclick = () =>
+        showAddCategorySheet({
+          kind: clothing ? 'clothing' : 'accessories',
+          gender,
+          tab: current,
+          stayOpen: true,
+          onSaved: () => {
+            sheetTitle.textContent = clothing ? 'Clothing categories' : 'Accessory categories';
+            paintSheet();
+          },
+        });
+      $('#manage-sub-form').onsubmit = (e) => {
+        e.preventDefault();
+        const name = $('#manage-sub-input').value.trim();
+        if (!name) return;
+        const result = clothing
+          ? PackStore.addClothingSubgroup(gender, current, name)
+          : PackStore.addAccessorySubgroup(current, name);
+        if (result.action === 'exists') toast('Already in the list');
+        else paintSheet();
+      };
+    }
+
+    openSheet(clothing ? 'Clothing categories' : 'Accessory categories', '', {
+      onClose: () => render(),
+    });
+    paintSheet();
   }
 
   function showCategoryManager(kind) {
@@ -3031,11 +3673,17 @@
   }
 
   // ——— Main render ———
-  async function render() {
+  async function render(opts = {}) {
     if (activeSortAbort) activeSortAbort();
+    const y = window.scrollY;
+    const x = window.scrollX;
     route = parseHash();
     syncTabs();
-    closeSheet();
+    if (!opts.preserveScroll) {
+      closeSheet();
+      tripStapleSelecting = false;
+      tripStapleSelected.clear();
+    }
 
     switch (route.name) {
       case 'trip':
@@ -3063,7 +3711,12 @@
         renderTrips();
     }
 
-    window.scrollTo(0, 0);
+    if (opts.preserveScroll) {
+      window.scrollTo(x, y);
+      requestAnimationFrame(() => window.scrollTo(x, y));
+    } else {
+      window.scrollTo(0, 0);
+    }
   }
 
   // ——— Events ———

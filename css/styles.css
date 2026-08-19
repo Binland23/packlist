@@ -2325,7 +2325,176 @@ html[data-theme="ember"] .toggle.on::after {
   color: var(--ink-faint);
 }
 
-/* Desktop polish */
+textarea.input {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.cat-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+}
+
+.split-toggle {
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.split-toggle.active {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent-ink);
+}
+
+.text-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  min-height: 34px;
+}
+
+.split-panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.split-pane {
+  min-width: 0;
+}
+
+.split-pane-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.split-pane-body {
+  max-height: min(52vh, 420px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 8px;
+}
+
+.clothes-split .split-pane-body {
+  max-height: none;
+}
+
+.day-header-btn {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.day-header-btn:hover h3 {
+  color: var(--accent-ink);
+}
+
+.day-notes-preview {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ink-faint);
+  font-weight: 500;
+  white-space: pre-wrap;
+}
+
+.day-add-row-4 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.day-events-stack,
+.day-outfit-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.day-event {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 6px;
+}
+
+.day-event-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 6px;
+}
+
+.day-event-head strong {
+  flex: 1;
+  font-size: 14px;
+}
+
+.day-event-add {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.event-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.event-preset {
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.event-preset:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.bulk-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  flex-shrink: 0;
+}
+
+.bulk-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.bulk-staple-bar {
+  margin-top: 12px;
+}
+
+.outfit-pick .drag-handle {
+  width: 36px;
+  height: 36px;
+}
+
+.day-item-row .drag-handle {
+  width: 32px;
+  height: 32px;
+}
 @media (min-width: 520px) {
   body {
     background: var(--page-wash);

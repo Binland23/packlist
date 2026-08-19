@@ -27,12 +27,13 @@ const PackStore = (() => {
     { name: 'Stud earrings', category: 'Jewelry' },
     { name: 'Everyday necklace', category: 'Jewelry' },
     { name: 'Watch', category: 'Jewelry' },
-    { name: 'Belt', category: 'Other' },
+    { name: 'Belt', category: 'Belts' },
     { name: 'Sunglasses', category: 'Other' },
     { name: 'Crossbody bag', category: 'Bags' },
     { name: 'Tote bag', category: 'Bags' },
     { name: 'Hair ties', category: 'Other' },
-    { name: 'Scarf', category: 'Other' },
+    { name: 'Scarf', category: 'Scarves' },
+    { name: 'Sun hat', category: 'Hats' },
     { name: 'Sneakers', category: 'Shoes' },
     { name: 'Sandals', category: 'Shoes' },
     { name: 'Heels', category: 'Shoes' },
@@ -46,7 +47,20 @@ const PackStore = (() => {
   ];
 
   const STAPLE_CAT_ORDER = ['Toiletries', 'Basics', 'Tech', 'Documents', 'Other'];
-  const ACCESSORY_CAT_ORDER = ['Jewelry', 'Bags', 'Shoes', 'Other'];
+  const ACCESSORY_CAT_ORDER = ['Jewelry', 'Bags', 'Shoes', 'Hats', 'Scarves', 'Belts', 'Other'];
+  const DAY_EVENT_PRESETS = [
+    'Coffee run',
+    'Brunch',
+    'Lunch',
+    'Dinner',
+    'Beach',
+    'Flight',
+    'Sightseeing',
+    'Workout',
+    'Shopping',
+    'Miscellaneous',
+    'Alternate',
+  ];
   const LEGACY_CLOTHING_SHOES = {
     women: [
       'Sneakers',
@@ -80,7 +94,13 @@ const PackStore = (() => {
     stapleCategories: STAPLE_CAT_ORDER.slice(),
     accessoryCategories: ACCESSORY_CAT_ORDER.slice(),
     clothingCatalog: { women: {}, men: {} },
+    extraClothingTabs: [],
+    hiddenClothingTabs: [],
+    clothingTabOrder: [],
+    accessoryCatalog: {},
+    splitView: { enabled: false, left: 'Tops', right: 'Bottoms' },
     migratedShoesToAccessories: false,
+    migratedHatsScarvesBelts: false,
   };
 
   function mergePrefs(raw) {
@@ -93,6 +113,11 @@ const PackStore = (() => {
       ? p.accessoryCategories.map((c) => String(c).trim()).filter(Boolean)
       : ACCESSORY_CAT_ORDER.slice();
     const clothingCatalog = normalizeClothingCatalog(p.clothingCatalog);
+    const extraClothingTabs = uniqueItemNames(p.extraClothingTabs);
+    const hiddenClothingTabs = uniqueItemNames(p.hiddenClothingTabs);
+    const clothingTabOrder = uniqueItemNames(p.clothingTabOrder);
+    const accessoryCatalog = normalizeAccessoryCatalog(p.accessoryCatalog);
+    const splitView = normalizeSplitView(p.splitView);
     const days = Math.max(1, Math.min(30, Number(p.defaultTripDays) || 3));
     return {
       ...DEFAULT_PREFS,
@@ -113,7 +138,13 @@ const PackStore = (() => {
       stapleCategories,
       accessoryCategories,
       clothingCatalog,
+      extraClothingTabs,
+      hiddenClothingTabs,
+      clothingTabOrder,
+      accessoryCatalog,
+      splitView,
       migratedShoesToAccessories: !!p.migratedShoesToAccessories,
+      migratedHatsScarvesBelts: !!p.migratedHatsScarvesBelts,
     };
   }
 
@@ -141,7 +172,13 @@ const PackStore = (() => {
         stapleCategories: STAPLE_CAT_ORDER.slice(),
         accessoryCategories: ACCESSORY_CAT_ORDER.slice(),
         clothingCatalog: { women: {}, men: {} },
+        extraClothingTabs: [],
+        hiddenClothingTabs: [],
+        clothingTabOrder: [],
+        accessoryCatalog: {},
+        splitView: { enabled: false, left: 'Tops', right: 'Bottoms' },
         migratedShoesToAccessories: true,
+        migratedHatsScarvesBelts: true,
       },
     };
   }
@@ -157,17 +194,41 @@ const PackStore = (() => {
     return next;
   }
 
+  function migrateEvent(ev) {
+    return {
+      id: ev?.id || uid(),
+      name: String(ev?.name || 'Event').trim() || 'Event',
+      items: Array.isArray(ev?.items)
+        ? ev.items
+            .map((item) => ({
+              id: item?.id || uid(),
+              name: normalizeName(item?.name),
+            }))
+            .filter((item) => item.name)
+        : [],
+    };
+  }
+
+  function migrateDay(day, index) {
+    return {
+      ...day,
+      id: day?.id || uid(),
+      label: day?.label || `Day ${index + 1}`,
+      date: typeof day?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day.date) ? day.date : null,
+      notes: String(day?.notes || ''),
+      outfitIds: Array.isArray(day?.outfitIds) ? day.outfitIds : [],
+      items: Array.isArray(day?.items) ? day.items : [],
+      events: Array.isArray(day?.events) ? day.events.map(migrateEvent) : [],
+    };
+  }
+
   function migrateTrip(trip) {
     return {
       ...trip,
       excludedStapleIds: Array.isArray(trip.excludedStapleIds) ? trip.excludedStapleIds : [],
       extraStaples: Array.isArray(trip.extraStaples) ? trip.extraStaples : [],
       packed: migratePacked(trip.packed),
-      days: (trip.days || []).map((d) => ({
-        ...d,
-        outfitIds: Array.isArray(d.outfitIds) ? d.outfitIds : [],
-        items: Array.isArray(d.items) ? d.items : [],
-      })),
+      days: (trip.days || []).map((d, i) => migrateDay(d, i)),
     };
   }
 
@@ -227,6 +288,46 @@ const PackStore = (() => {
     return true;
   }
 
+  function migrateHatsScarvesBelts(state) {
+    if (state.prefs.migratedHatsScarvesBelts) return false;
+    ['Hats', 'Scarves', 'Belts'].forEach((name) => {
+      state.prefs.accessoryCategories = ensureAccessoryCategory(
+        state.prefs.accessoryCategories,
+        name,
+        'Other'
+      );
+    });
+    const rules = [
+      ['Hats', /\bhat\b|\bcaps?\b|\bbeanie\b|\bvisor\b/i],
+      ['Scarves', /\bscarf\b|\bscarves\b/i],
+      ['Belts', /\bbelt\b/i],
+    ];
+    (state.accessories || []).forEach((item) => {
+      const cat = item.category || 'Other';
+      if (cat !== 'Other') return;
+      for (const [next, re] of rules) {
+        if (re.test(item.name || '')) {
+          item.category = next;
+          break;
+        }
+      }
+    });
+    const have = new Set((state.accessories || []).map((a) => a.name.toLowerCase()));
+    DEFAULT_ACCESSORIES.filter((item) => ['Hats', 'Scarves', 'Belts'].includes(item.category)).forEach(
+      (item) => {
+        if (have.has(item.name.toLowerCase())) return;
+        have.add(item.name.toLowerCase());
+        state.accessories.push({
+          id: uid(),
+          name: item.name,
+          category: item.category,
+        });
+      }
+    );
+    state.prefs.migratedHatsScarvesBelts = true;
+    return true;
+  }
+
   function migrateState(parsed) {
     const defaults = emptyState();
     const state = {
@@ -237,6 +338,7 @@ const PackStore = (() => {
       prefs: mergePrefs(parsed.prefs),
     };
     migrateShoesToAccessories(state);
+    migrateHatsScarvesBelts(state);
     return state;
   }
 
@@ -254,7 +356,8 @@ const PackStore = (() => {
         parsed.prefs?.clothingCatalog?.women?.Shoes || parsed.prefs?.clothingCatalog?.men?.Shoes;
       if (
         !parsed.prefs?.migratedShoesToAccessories ||
-        hadClothingShoes
+        hadClothingShoes ||
+        !parsed.prefs?.migratedHatsScarvesBelts
       ) {
         save(state);
       }
@@ -347,7 +450,13 @@ const PackStore = (() => {
   }
 
   function listAccessorySubgroups(category) {
-    return ClothingCatalog.accessorySubgroupsFor(category);
+    const defaults = ClothingCatalog.accessorySubgroupsFor(category);
+    const patch = getAccessoryPatch(category);
+    const hidden = new Set((patch.hiddenGroups || []).map((n) => n.toLowerCase()));
+    const extras = patch.extraGroups || [];
+    const kept = defaults.filter((name) => !hidden.has(name.toLowerCase()));
+    const merged = uniqueCats(kept, extras);
+    return applyNamedOrder(merged, extras, patch.groupOrder || []);
   }
 
   function accessorySubgroup(item) {
@@ -394,7 +503,17 @@ const PackStore = (() => {
   }
 
   function emptyClothingPatch() {
-    return { extras: [], hidden: [], order: [], extraSubs: {}, orderBySub: {}, photos: {} };
+    return {
+      extras: [],
+      hidden: [],
+      order: [],
+      extraSubs: {},
+      orderBySub: {},
+      photos: {},
+      extraGroups: [],
+      hiddenGroups: [],
+      groupOrder: [],
+    };
   }
 
   function normalizeSubMap(raw) {
@@ -442,6 +561,9 @@ const PackStore = (() => {
       extraSubs: normalizeSubMap(raw.extraSubs),
       orderBySub: normalizeOrderBySub(raw.orderBySub),
       photos: normalizePhotoMap(raw.photos),
+      extraGroups: uniqueItemNames(raw.extraGroups),
+      hiddenGroups: uniqueItemNames(raw.hiddenGroups),
+      groupOrder: uniqueItemNames(raw.groupOrder),
     };
   }
 
@@ -452,8 +574,114 @@ const PackStore = (() => {
       !patch.order.length &&
       !Object.keys(patch.extraSubs || {}).length &&
       !Object.keys(patch.orderBySub || {}).length &&
-      !Object.keys(patch.photos || {}).length
+      !Object.keys(patch.photos || {}).length &&
+      !(patch.extraGroups || []).length &&
+      !(patch.hiddenGroups || []).length &&
+      !(patch.groupOrder || []).length
     );
+  }
+
+  function emptyAccessoryPatch() {
+    return { extraGroups: [], hiddenGroups: [], groupOrder: [] };
+  }
+
+  function normalizeAccessoryPatch(raw) {
+    if (!raw || typeof raw !== 'object') return emptyAccessoryPatch();
+    return {
+      extraGroups: uniqueItemNames(raw.extraGroups),
+      hiddenGroups: uniqueItemNames(raw.hiddenGroups),
+      groupOrder: uniqueItemNames(raw.groupOrder),
+    };
+  }
+
+  function accessoryPatchIsEmpty(patch) {
+    return (
+      !(patch.extraGroups || []).length &&
+      !(patch.hiddenGroups || []).length &&
+      !(patch.groupOrder || []).length
+    );
+  }
+
+  function normalizeAccessoryCatalog(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+    Object.keys(raw).forEach((cat) => {
+      const name = String(cat || '').trim();
+      if (!name) return;
+      const patch = normalizeAccessoryPatch(raw[cat]);
+      if (!accessoryPatchIsEmpty(patch)) out[name] = patch;
+    });
+    return out;
+  }
+
+  function getAccessoryPatch(category) {
+    const catalog = getPrefs().accessoryCatalog || {};
+    const key = Object.keys(catalog).find((c) => c.toLowerCase() === String(category || '').toLowerCase());
+    return normalizeAccessoryPatch(key ? catalog[key] : null);
+  }
+
+  function setAccessoryPatch(category, patch) {
+    const name = String(category || '').trim();
+    if (!name) return emptyAccessoryPatch();
+    const catalog = normalizeAccessoryCatalog(getPrefs().accessoryCatalog);
+    const next = normalizeAccessoryPatch(patch);
+    Object.keys(catalog).forEach((key) => {
+      if (key.toLowerCase() === name.toLowerCase()) delete catalog[key];
+    });
+    if (!accessoryPatchIsEmpty(next)) catalog[name] = next;
+    setPref('accessoryCatalog', catalog);
+    return next;
+  }
+
+  function normalizeSplitView(raw) {
+    const src = raw && typeof raw === 'object' ? raw : {};
+    const left = String(src.left || 'Tops').trim() || 'Tops';
+    const right = String(src.right || 'Bottoms').trim() || 'Bottoms';
+    return {
+      enabled: !!src.enabled,
+      left,
+      right: right.toLowerCase() === left.toLowerCase() ? 'Bottoms' : right,
+    };
+  }
+
+  function parseISODate(value) {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+    const [y, m, d] = value.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
+    return date;
+  }
+
+  function toISODate(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function addDaysISO(value, days) {
+    const date = parseISODate(value);
+    if (!date) return null;
+    date.setDate(date.getDate() + Number(days) || 0);
+    return toISODate(date);
+  }
+
+  function weekdayName(value) {
+    const date = parseISODate(value);
+    if (!date) return '';
+    return date.toLocaleDateString('en-US', { weekday: 'long' });
+  }
+
+  function formatDayDate(value) {
+    const date = parseISODate(value);
+    if (!date) return '';
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  function isDefaultDayLabel(label, index) {
+    const expected = `Day ${index + 1}`;
+    return !label || String(label).trim().toLowerCase() === expected.toLowerCase();
   }
 
   function normalizeClothingCatalog(raw) {
@@ -490,11 +718,294 @@ const PackStore = (() => {
   }
 
   function listClothingTabs(gender) {
-    return ClothingCatalog.groupNamesFor(clothingGender(gender));
+    const g = clothingGender(gender);
+    const defaults = ClothingCatalog.groupNamesFor(g);
+    const prefs = getPrefs();
+    const hidden = new Set((prefs.hiddenClothingTabs || []).map((n) => n.toLowerCase()));
+    const extras = prefs.extraClothingTabs || [];
+    const kept = defaults.filter((name) => !hidden.has(name.toLowerCase()));
+    const merged = uniqueCats(kept, extras);
+    return applyNamedOrder(merged, extras, prefs.clothingTabOrder || []);
+  }
+
+  function listPickerTabs(gender) {
+    return [...listClothingTabs(gender), 'Accessories'];
   }
 
   function listClothingSubgroups(gender, tab) {
-    return ClothingCatalog.subgroupNamesFor(clothingGender(gender), tab);
+    const g = clothingGender(gender);
+    const defaults = ClothingCatalog.subgroupNamesFor(g, tab);
+    const patch = getClothingPatch(g, tab);
+    const hidden = new Set((patch.hiddenGroups || []).map((n) => n.toLowerCase()));
+    const extras = patch.extraGroups || [];
+    const kept = defaults.filter((name) => !hidden.has(name.toLowerCase()));
+    const merged = uniqueCats(kept, extras);
+    return applyNamedOrder(merged, extras, patch.groupOrder || []);
+  }
+
+  function isCustomClothingTab(gender, tab) {
+    const key = String(tab || '').trim().toLowerCase();
+    if (!key) return false;
+    return (getPrefs().extraClothingTabs || []).some((n) => n.toLowerCase() === key);
+  }
+
+  function isCustomClothingGroup(gender, tab, sub) {
+    const key = String(sub || '').trim().toLowerCase();
+    if (!key) return false;
+    const patch = getClothingPatch(gender, tab);
+    return (patch.extraGroups || []).some((n) => n.toLowerCase() === key);
+  }
+
+  function addClothingTab(gender, name) {
+    const trimmed = normalizeName(name);
+    if (!trimmed) return { action: 'empty' };
+    const existing = listClothingTabs(gender);
+    if (existing.some((n) => n.toLowerCase() === trimmed.toLowerCase()) || trimmed.toLowerCase() === 'accessories') {
+      return { action: 'exists', name: trimmed };
+    }
+    const extras = [...(getPrefs().extraClothingTabs || []), trimmed];
+    const hidden = (getPrefs().hiddenClothingTabs || []).filter((n) => n.toLowerCase() !== trimmed.toLowerCase());
+    setPrefs({ extraClothingTabs: extras, hiddenClothingTabs: hidden });
+    return { action: 'added', name: trimmed };
+  }
+
+  function renameClothingTab(gender, oldName, newName) {
+    const next = normalizeName(newName);
+    if (!next) return { action: 'empty' };
+    const g = clothingGender(gender);
+    const current = listClothingTabs(g);
+    if (!current.some((n) => n.toLowerCase() === String(oldName).toLowerCase())) {
+      return { action: 'missing' };
+    }
+    if (current.some((n) => n.toLowerCase() === next.toLowerCase() && n.toLowerCase() !== String(oldName).toLowerCase())) {
+      return { action: 'exists', name: next };
+    }
+    if (next.toLowerCase() === 'accessories') return { action: 'invalid' };
+    const prefs = getPrefs();
+    const extras = (prefs.extraClothingTabs || []).map((n) =>
+      n.toLowerCase() === String(oldName).toLowerCase() ? next : n
+    );
+    if (!extras.some((n) => n.toLowerCase() === next.toLowerCase()) && isCustomClothingTab(g, oldName)) {
+      extras.push(next);
+    }
+    const catalog = normalizeClothingCatalog(prefs.clothingCatalog);
+    if (catalog[g]?.[oldName]) {
+      catalog[g][next] = catalog[g][oldName];
+      delete catalog[g][oldName];
+    }
+    const order = (prefs.clothingTabOrder || []).map((n) =>
+      n.toLowerCase() === String(oldName).toLowerCase() ? next : n
+    );
+    const hidden = (prefs.hiddenClothingTabs || []).filter((n) => n.toLowerCase() !== String(oldName).toLowerCase());
+    if (!isCustomClothingTab(g, oldName) && ClothingCatalog.groupNamesFor(g).includes(oldName)) {
+      hidden.push(oldName);
+      if (!extras.some((n) => n.toLowerCase() === next.toLowerCase())) extras.push(next);
+    }
+    setPrefs({ extraClothingTabs: extras, hiddenClothingTabs: hidden, clothingTabOrder: order, clothingCatalog: catalog });
+    return { action: 'renamed', name: next };
+  }
+
+  function removeClothingTab(gender, name) {
+    const g = clothingGender(gender);
+    const tabs = listClothingTabs(g);
+    if (tabs.length <= 1) return { action: 'last' };
+    const trimmed = normalizeName(name);
+    if (!tabs.some((n) => n.toLowerCase() === trimmed.toLowerCase())) return { action: 'missing' };
+    const prefs = getPrefs();
+    if (isCustomClothingTab(g, trimmed)) {
+      const extras = (prefs.extraClothingTabs || []).filter((n) => n.toLowerCase() !== trimmed.toLowerCase());
+      const catalog = normalizeClothingCatalog(prefs.clothingCatalog);
+      if (catalog[g]) delete catalog[g][trimmed];
+      setPrefs({ extraClothingTabs: extras, clothingCatalog: catalog });
+      return { action: 'removed', name: trimmed };
+    }
+    const hidden = uniqueItemNames([...(prefs.hiddenClothingTabs || []), trimmed]);
+    setPref('hiddenClothingTabs', hidden);
+    return { action: 'hidden', name: trimmed };
+  }
+
+  function addClothingSubgroup(gender, tab, name) {
+    const g = clothingGender(gender);
+    const trimmed = normalizeName(name);
+    if (!trimmed) return { action: 'empty' };
+    const current = listClothingSubgroups(g, tab);
+    if (current.some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
+      return { action: 'exists', name: trimmed };
+    }
+    const patch = getClothingPatch(g, tab);
+    patch.extraGroups = [...(patch.extraGroups || []), trimmed];
+    patch.hiddenGroups = (patch.hiddenGroups || []).filter((n) => n.toLowerCase() !== trimmed.toLowerCase());
+    setClothingPatch(g, tab, patch);
+    return { action: 'added', name: trimmed };
+  }
+
+  function renameClothingSubgroup(gender, tab, oldName, newName) {
+    const g = clothingGender(gender);
+    const next = normalizeName(newName);
+    if (!next) return { action: 'empty' };
+    const current = listClothingSubgroups(g, tab);
+    if (!current.some((n) => n.toLowerCase() === String(oldName).toLowerCase())) return { action: 'missing' };
+    if (current.some((n) => n.toLowerCase() === next.toLowerCase() && n.toLowerCase() !== String(oldName).toLowerCase())) {
+      return { action: 'exists', name: next };
+    }
+    const patch = getClothingPatch(g, tab);
+    patch.extraGroups = (patch.extraGroups || []).map((n) =>
+      n.toLowerCase() === String(oldName).toLowerCase() ? next : n
+    );
+    if (!patch.extraGroups.some((n) => n.toLowerCase() === next.toLowerCase())) patch.extraGroups.push(next);
+    if (ClothingCatalog.subgroupNamesFor(g, tab).includes(oldName)) {
+      if (!(patch.hiddenGroups || []).some((n) => n.toLowerCase() === String(oldName).toLowerCase())) {
+        patch.hiddenGroups = [...(patch.hiddenGroups || []), oldName];
+      }
+    }
+    Object.keys(patch.extraSubs || {}).forEach((item) => {
+      if (patch.extraSubs[item] === oldName) patch.extraSubs[item] = next;
+    });
+    if (patch.orderBySub?.[oldName]) {
+      patch.orderBySub[next] = patch.orderBySub[oldName];
+      delete patch.orderBySub[oldName];
+    }
+    patch.groupOrder = (patch.groupOrder || []).map((n) =>
+      n.toLowerCase() === String(oldName).toLowerCase() ? next : n
+    );
+    setClothingPatch(g, tab, patch);
+    return { action: 'renamed', name: next };
+  }
+
+  function removeClothingSubgroup(gender, tab, name) {
+    const g = clothingGender(gender);
+    const trimmed = normalizeName(name);
+    const current = listClothingSubgroups(g, tab);
+    if (!current.some((n) => n.toLowerCase() === trimmed.toLowerCase())) return { action: 'missing' };
+    const patch = getClothingPatch(g, tab);
+    patch.extraGroups = (patch.extraGroups || []).filter((n) => n.toLowerCase() !== trimmed.toLowerCase());
+    Object.keys(patch.extraSubs || {}).forEach((item) => {
+      if (patch.extraSubs[item] === trimmed || patch.extraSubs[item] === name) delete patch.extraSubs[item];
+    });
+    if (patch.orderBySub) delete patch.orderBySub[trimmed];
+    patch.groupOrder = (patch.groupOrder || []).filter((n) => n.toLowerCase() !== trimmed.toLowerCase());
+    if (ClothingCatalog.subgroupNamesFor(g, tab).includes(name) || ClothingCatalog.subgroupNamesFor(g, tab).includes(trimmed)) {
+      if (!(patch.hiddenGroups || []).some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
+        patch.hiddenGroups = [...(patch.hiddenGroups || []), trimmed];
+      }
+    }
+    setClothingPatch(g, tab, patch);
+    return { action: 'removed', name: trimmed };
+  }
+
+  function addAccessoryCategory(name) {
+    const trimmed = normalizeName(name);
+    if (!trimmed) return { action: 'empty' };
+    const cats = listAccessoryCategories();
+    if (cats.some((c) => c.toLowerCase() === trimmed.toLowerCase())) return { action: 'exists', name: trimmed };
+    setPref('accessoryCategories', [...getPrefs().accessoryCategories, trimmed]);
+    return { action: 'added', name: trimmed };
+  }
+
+  function renameAccessoryCategory(oldName, newName) {
+    const next = normalizeName(newName);
+    if (!next) return { action: 'empty' };
+    const cats = listAccessoryCategories();
+    if (!cats.some((c) => c.toLowerCase() === String(oldName).toLowerCase())) return { action: 'missing' };
+    if (cats.some((c) => c.toLowerCase() === next.toLowerCase() && c.toLowerCase() !== String(oldName).toLowerCase())) {
+      return { action: 'exists', name: next };
+    }
+    const prefs = getPrefs();
+    const accessoryCategories = (prefs.accessoryCategories || []).map((c) =>
+      c.toLowerCase() === String(oldName).toLowerCase() ? next : c
+    );
+    if (!accessoryCategories.some((c) => c.toLowerCase() === next.toLowerCase())) accessoryCategories.push(next);
+    update((state) => {
+      state.prefs = mergePrefs({ ...state.prefs, accessoryCategories });
+      state.accessories.forEach((item) => {
+        if ((item.category || '').toLowerCase() === String(oldName).toLowerCase()) item.category = next;
+      });
+      const catalog = normalizeAccessoryCatalog(state.prefs.accessoryCatalog);
+      if (catalog[oldName]) {
+        catalog[next] = catalog[oldName];
+        delete catalog[oldName];
+        state.prefs.accessoryCatalog = catalog;
+      }
+    });
+    return { action: 'renamed', name: next };
+  }
+
+  function removeAccessoryCategory(name) {
+    const cats = getPrefs().accessoryCategories || [];
+    if (cats.length <= 1) return { action: 'last' };
+    const trimmed = normalizeName(name);
+    if (!cats.some((c) => c.toLowerCase() === trimmed.toLowerCase())) return { action: 'missing' };
+    setPref(
+      'accessoryCategories',
+      cats.filter((c) => c.toLowerCase() !== trimmed.toLowerCase())
+    );
+    return { action: 'removed', name: trimmed };
+  }
+
+  function addAccessorySubgroup(category, name) {
+    const trimmed = normalizeName(name);
+    if (!trimmed) return { action: 'empty' };
+    const current = listAccessorySubgroups(category);
+    if (current.some((n) => n.toLowerCase() === trimmed.toLowerCase())) return { action: 'exists', name: trimmed };
+    const patch = getAccessoryPatch(category);
+    patch.extraGroups = [...(patch.extraGroups || []), trimmed];
+    patch.hiddenGroups = (patch.hiddenGroups || []).filter((n) => n.toLowerCase() !== trimmed.toLowerCase());
+    setAccessoryPatch(category, patch);
+    return { action: 'added', name: trimmed };
+  }
+
+  function renameAccessorySubgroup(category, oldName, newName) {
+    const next = normalizeName(newName);
+    if (!next) return { action: 'empty' };
+    const current = listAccessorySubgroups(category);
+    if (!current.some((n) => n.toLowerCase() === String(oldName).toLowerCase())) return { action: 'missing' };
+    if (current.some((n) => n.toLowerCase() === next.toLowerCase() && n.toLowerCase() !== String(oldName).toLowerCase())) {
+      return { action: 'exists', name: next };
+    }
+    const patch = getAccessoryPatch(category);
+    patch.extraGroups = (patch.extraGroups || []).map((n) =>
+      n.toLowerCase() === String(oldName).toLowerCase() ? next : n
+    );
+    if (!patch.extraGroups.some((n) => n.toLowerCase() === next.toLowerCase())) patch.extraGroups.push(next);
+    if (ClothingCatalog.accessorySubgroupsFor(category).includes(oldName)) {
+      if (!(patch.hiddenGroups || []).some((n) => n.toLowerCase() === String(oldName).toLowerCase())) {
+        patch.hiddenGroups = [...(patch.hiddenGroups || []), oldName];
+      }
+    }
+    patch.groupOrder = (patch.groupOrder || []).map((n) =>
+      n.toLowerCase() === String(oldName).toLowerCase() ? next : n
+    );
+    update((state) => {
+      state.accessories.forEach((item) => {
+        if ((item.category || '') === category && item.sub === oldName) item.sub = next;
+      });
+    });
+    setAccessoryPatch(category, patch);
+    return { action: 'renamed', name: next };
+  }
+
+  function removeAccessorySubgroup(category, name) {
+    const trimmed = normalizeName(name);
+    const current = listAccessorySubgroups(category);
+    if (!current.some((n) => n.toLowerCase() === trimmed.toLowerCase())) return { action: 'missing' };
+    const patch = getAccessoryPatch(category);
+    patch.extraGroups = (patch.extraGroups || []).filter((n) => n.toLowerCase() !== trimmed.toLowerCase());
+    patch.groupOrder = (patch.groupOrder || []).filter((n) => n.toLowerCase() !== trimmed.toLowerCase());
+    if (ClothingCatalog.accessorySubgroupsFor(category).includes(name) || ClothingCatalog.accessorySubgroupsFor(category).includes(trimmed)) {
+      if (!(patch.hiddenGroups || []).some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
+        patch.hiddenGroups = [...(patch.hiddenGroups || []), trimmed];
+      }
+    }
+    setAccessoryPatch(category, patch);
+    return { action: 'removed', name: trimmed };
+  }
+
+  function getSplitView() {
+    return normalizeSplitView(getPrefs().splitView);
+  }
+
+  function setSplitView(patch) {
+    return setPref('splitView', normalizeSplitView({ ...getSplitView(), ...patch }));
   }
 
   function extraSubOf(patch, name) {
@@ -599,6 +1110,14 @@ const PackStore = (() => {
       ['Bras', /\bbra\b|\bbralette\b/],
       ['Underwear', /\bunderwear\b|\bthong\b|\bshapewear\b|\bslip\b|\bboxers?\b|\bbriefs?\b/],
       ['Sleep', /\bpajamas?\b|\bpjs?\b|\bsleep|\bnightgown\b|\brobe\b/],
+      ['Earrings', /\bearring|\bhoops?\b|\bstuds?\b/],
+      ['Necklaces', /\bnecklace|\bpendant|\bchain\b/],
+      ['Bracelets', /\bbracelet|\bbangle|\bcuff\b/],
+      ['Rings', /\bring\b/],
+      ['Watches', /\bwatch\b/],
+      ['Hats', /\bhat\b|\bcap\b|\bbeanie\b|\bvisor\b/],
+      ['Scarves', /\bscarf\b|\bscarves\b/],
+      ['Belts', /\bbelt\b/],
       ['Sandals', /\bsandal|\bslide|\bflip[- ]?flop/],
       ['Sneakers', /\bsneaker|\btrainer|\bwalking shoe/],
       ['Boots', /\bboot/],
@@ -624,7 +1143,10 @@ const PackStore = (() => {
     if (extra && subs.includes(extra)) return extra;
     const fromCatalog = ClothingCatalog.defaultSubgroup(g, tab, name);
     if (fromCatalog) return fromCatalog;
-    return guessSubgroup(name, subs) || subs[0];
+    const guessed = guessSubgroup(name, subs);
+    if (guessed) return guessed;
+    if (ClothingCatalog.subgroupNamesFor(g, tab).length) return subs[0];
+    return null;
   }
 
   function applyNamedOrder(merged, extras, order) {
@@ -686,7 +1208,19 @@ const PackStore = (() => {
         label: sub,
         items: applyNamedOrder(merged, extraHere, order),
       };
-    });
+    }).concat((() => {
+      const assigned = new Set();
+      const leftoverExtras = extras.filter((name) => !resolveSubgroup(g, tab, name, patch));
+      const leftoverKept = kept.filter((name) => !resolveSubgroup(g, tab, name, patch));
+      leftoverExtras.concat(leftoverKept).forEach((name) => assigned.add(name));
+      const leftover = [...leftoverExtras, ...leftoverKept];
+      if (!leftover.length) return [];
+      return [{
+        id: '',
+        label: 'Other',
+        items: applyNamedOrder(leftover, leftoverExtras, patch.order),
+      }];
+    })());
   }
 
   function listClothingItems(gender, tab) {
@@ -925,6 +1459,9 @@ const PackStore = (() => {
           extraSubs: catalog[g][tab].extraSubs || {},
           orderBySub: catalog[g][tab].orderBySub || {},
           photos: catalog[g][tab].photos || {},
+          extraGroups: catalog[g][tab].extraGroups || [],
+          hiddenGroups: catalog[g][tab].hiddenGroups || [],
+          groupOrder: catalog[g][tab].groupOrder || [],
         };
         if (clothingPatchIsEmpty(catalog[g][tab])) delete catalog[g][tab];
       });
@@ -1137,12 +1674,22 @@ const PackStore = (() => {
     return staple;
   }
 
+  function spliceReorderById(list, orderedIds) {
+    const map = new Map(list.map((item) => [item.id, item]));
+    const queue = orderedIds.map((id) => map.get(id)).filter(Boolean);
+    const idSet = new Set(queue.map((item) => item.id));
+    return list.map((item) => (idSet.has(item.id) ? queue.shift() : item));
+  }
+
   function reorderStaples(ids) {
     update((state) => {
-      const map = new Map(state.staples.map((s) => [s.id, s]));
-      const next = ids.map((id) => map.get(id)).filter(Boolean);
-      const leftovers = state.staples.filter((s) => !ids.includes(s.id));
-      state.staples = [...next, ...leftovers];
+      state.staples = spliceReorderById(state.staples, ids);
+    });
+  }
+
+  function reorderAccessories(ids) {
+    update((state) => {
+      state.accessories = spliceReorderById(state.accessories, ids);
     });
   }
 
@@ -1231,20 +1778,34 @@ const PackStore = (() => {
     return trip ? migrateTrip(trip) : null;
   }
 
-  function emptyDay(index) {
+  function dayAllItemNames(day) {
+    const names = [];
+    (day?.items || []).forEach((item) => names.push(item.name));
+    (day?.events || []).forEach((ev) => {
+      (ev.items || []).forEach((item) => names.push(item.name));
+    });
+    return names;
+  }
+
+  function emptyDay(index, startDate) {
+    const date = startDate ? addDaysISO(startDate, index) : null;
     return {
       id: uid(),
-      label: `Day ${index + 1}`,
+      label: date ? weekdayName(date) : `Day ${index + 1}`,
+      date,
+      notes: '',
       outfitIds: [],
       items: [],
+      events: [],
     };
   }
 
-  function createTrip({ name, days }) {
+  function createTrip({ name, days, startDate }) {
     const id = uid();
     const now = Date.now();
     const dayCount = Math.max(1, Number(days) || 1);
-    const dayList = Array.from({ length: dayCount }, (_, i) => emptyDay(i));
+    const start = parseISODate(startDate) ? startDate : null;
+    const dayList = Array.from({ length: dayCount }, (_, i) => emptyDay(i, start));
     update((state) => {
       state.trips.unshift({
         id,
@@ -1281,23 +1842,158 @@ const PackStore = (() => {
     });
   }
 
-  function setTripDays(tripId, dayCount) {
+  function setTripDays(tripId, dayCount, startDate) {
     const trip = getTrip(tripId);
     if (!trip) return null;
     const n = Math.max(1, Math.min(30, Number(dayCount) || 1));
-    let days = trip.days.slice();
+    let days = trip.days.slice().map(migrateDay);
+    const start = parseISODate(startDate) ? startDate : null;
     if (n > days.length) {
+      const lastDated = [...days].reverse().find((d) => d.date);
+      const continueFrom = start || lastDated?.date || null;
+      const offset = continueFrom && lastDated?.date && !start ? days.length : 0;
       for (let i = days.length; i < n; i++) {
-        days.push(emptyDay(i));
+        const next = emptyDay(i);
+        if (continueFrom) {
+          next.date = addDaysISO(continueFrom, start ? i : i - offset);
+          if (isDefaultDayLabel(next.label, i) && next.date) next.label = weekdayName(next.date);
+        }
+        days.push(next);
       }
     } else if (n < days.length) {
       days = days.slice(0, n);
     }
-    days = days.map((d, i) => ({
-      ...d,
-      label: d.label || `Day ${i + 1}`,
-      items: Array.isArray(d.items) ? d.items : [],
-    }));
+    if (start) {
+      days = days.map((d, i) => {
+        const date = addDaysISO(start, i);
+        const keepCustom = d.label && !isDefaultDayLabel(d.label, i) && d.label !== weekdayName(d.date);
+        return {
+          ...d,
+          date,
+          label: keepCustom ? d.label : weekdayName(date),
+        };
+      });
+    }
+    days = days.map((d, i) => migrateDay(d, i));
+    return updateTrip(tripId, { days });
+  }
+
+  function updateDay(tripId, dayId, patch) {
+    const trip = getTrip(tripId);
+    if (!trip) return null;
+    const days = trip.days.map((d, i) => {
+      if (d.id !== dayId) return d;
+      const next = { ...d, ...patch, id: d.id };
+      if (patch.date !== undefined) {
+        const date = parseISODate(patch.date) ? patch.date : null;
+        next.date = date;
+        if (date && (isDefaultDayLabel(d.label, i) || d.label === weekdayName(d.date))) {
+          next.label = weekdayName(date);
+        }
+      }
+      if (patch.label != null) next.label = String(patch.label).trim() || `Day ${i + 1}`;
+      if (patch.notes != null) next.notes = String(patch.notes);
+      return next;
+    });
+    return updateTrip(tripId, { days });
+  }
+
+  function applyWeekdayNames(tripId, startDate) {
+    const trip = getTrip(tripId);
+    if (!trip || !parseISODate(startDate)) return trip;
+    const days = trip.days.map((d, i) => {
+      const date = addDaysISO(startDate, i);
+      return { ...d, date, label: weekdayName(date) };
+    });
+    return updateTrip(tripId, { days });
+  }
+
+  function addEventToDay(tripId, dayId, { name } = {}) {
+    const trip = getTrip(tripId);
+    if (!trip) return null;
+    const trimmed = normalizeName(name) || 'Event';
+    const days = trip.days.map((d) => {
+      if (d.id !== dayId) return d;
+      return {
+        ...d,
+        events: [...(d.events || []), { id: uid(), name: trimmed, items: [] }],
+      };
+    });
+    return updateTrip(tripId, { days });
+  }
+
+  function updateDayEvent(tripId, dayId, eventId, patch) {
+    const trip = getTrip(tripId);
+    if (!trip) return null;
+    const days = trip.days.map((d) => {
+      if (d.id !== dayId) return d;
+      return {
+        ...d,
+        events: (d.events || []).map((ev) =>
+          ev.id === eventId
+            ? {
+                ...ev,
+                name: patch.name != null ? normalizeName(patch.name) || ev.name : ev.name,
+                items: patch.items != null ? patch.items : ev.items,
+              }
+            : ev
+        ),
+      };
+    });
+    return updateTrip(tripId, { days });
+  }
+
+  function removeEventFromDay(tripId, dayId, eventId) {
+    const trip = getTrip(tripId);
+    if (!trip) return null;
+    const days = trip.days.map((d) => {
+      if (d.id !== dayId) return d;
+      return { ...d, events: (d.events || []).filter((ev) => ev.id !== eventId) };
+    });
+    return updateTrip(tripId, { days });
+  }
+
+  function reorderDayEvents(tripId, dayId, eventIds) {
+    const trip = getTrip(tripId);
+    if (!trip) return null;
+    const days = trip.days.map((d) => {
+      if (d.id !== dayId) return d;
+      return { ...d, events: spliceReorderById(d.events || [], eventIds) };
+    });
+    return updateTrip(tripId, { days });
+  }
+
+  function reorderDayItems(tripId, dayId, itemIds, eventId) {
+    const trip = getTrip(tripId);
+    if (!trip) return null;
+    const days = trip.days.map((d) => {
+      if (d.id !== dayId) return d;
+      if (eventId) {
+        return {
+          ...d,
+          events: (d.events || []).map((ev) =>
+            ev.id === eventId ? { ...ev, items: spliceReorderById(ev.items || [], itemIds) } : ev
+          ),
+        };
+      }
+      return { ...d, items: spliceReorderById(d.items || [], itemIds) };
+    });
+    return updateTrip(tripId, { days });
+  }
+
+  function reorderDayOutfits(tripId, dayId, outfitIds) {
+    const trip = getTrip(tripId);
+    if (!trip) return null;
+    const days = trip.days.map((d) => {
+      if (d.id !== dayId) return d;
+      const current = d.outfitIds || [];
+      const allowed = new Set(current);
+      const next = outfitIds.filter((id) => allowed.has(id));
+      current.forEach((id) => {
+        if (!next.includes(id)) next.push(id);
+      });
+      return { ...d, outfitIds: next };
+    });
     return updateTrip(tripId, { days });
   }
 
@@ -1322,21 +2018,28 @@ const PackStore = (() => {
     return updateTrip(tripId, { days });
   }
 
-  function addItemToDay(tripId, dayId, { name }) {
+  function addItemToDay(tripId, dayId, { name, eventId } = {}) {
     const trip = getTrip(tripId);
     if (!trip) return null;
     const trimmed = normalizeName(name);
     if (!trimmed) return trip;
     const days = trip.days.map((d) => {
       if (d.id !== dayId) return d;
-      const already = (d.items || []).some(
-        (item) => item.name.toLowerCase() === trimmed.toLowerCase()
-      );
+      const record = { id: uid(), name: trimmed };
+      if (eventId) {
+        return {
+          ...d,
+          events: (d.events || []).map((ev) => {
+            if (ev.id !== eventId) return ev;
+            const already = (ev.items || []).some((item) => item.name.toLowerCase() === trimmed.toLowerCase());
+            if (already) return ev;
+            return { ...ev, items: [...(ev.items || []), record] };
+          }),
+        };
+      }
+      const already = (d.items || []).some((item) => item.name.toLowerCase() === trimmed.toLowerCase());
       if (already) return d;
-      return {
-        ...d,
-        items: [...(d.items || []), { id: uid(), name: trimmed }],
-      };
+      return { ...d, items: [...(d.items || []), record] };
     });
     return updateTrip(tripId, { days });
   }
@@ -1346,7 +2049,43 @@ const PackStore = (() => {
     if (!trip) return null;
     const days = trip.days.map((d) => {
       if (d.id !== dayId) return d;
-      return { ...d, items: (d.items || []).filter((item) => item.id !== itemId) };
+      return {
+        ...d,
+        items: (d.items || []).filter((item) => item.id !== itemId),
+        events: (d.events || []).map((ev) => ({
+          ...ev,
+          items: (ev.items || []).filter((item) => item.id !== itemId),
+        })),
+      };
+    });
+    return updateTrip(tripId, { days });
+  }
+
+  function removeItemFromDayByName(tripId, dayId, name, eventId) {
+    const trip = getTrip(tripId);
+    if (!trip) return null;
+    const key = normalizeName(name).toLowerCase();
+    if (!key) return trip;
+    const days = trip.days.map((d) => {
+      if (d.id !== dayId) return d;
+      if (eventId) {
+        return {
+          ...d,
+          events: (d.events || []).map((ev) =>
+            ev.id === eventId
+              ? { ...ev, items: (ev.items || []).filter((item) => item.name.toLowerCase() !== key) }
+              : ev
+          ),
+        };
+      }
+      return {
+        ...d,
+        items: (d.items || []).filter((item) => item.name.toLowerCase() !== key),
+        events: (d.events || []).map((ev) => ({
+          ...ev,
+          items: (ev.items || []).filter((item) => item.name.toLowerCase() !== key),
+        })),
+      };
     });
     return updateTrip(tripId, { days });
   }
@@ -1435,6 +2174,26 @@ const PackStore = (() => {
     }
     return updateTrip(tripId, {
       excludedStapleIds: [...(trip.excludedStapleIds || []), stapleId],
+      packed: nextPacked,
+    });
+  }
+
+  function removeTripStaples(tripId, removals) {
+    const trip = getTrip(tripId);
+    if (!trip || !Array.isArray(removals) || !removals.length) return trip;
+    const nextPacked = { ...(trip.packed || {}) };
+    const extraIds = new Set();
+    const globalIds = new Set(trip.excludedStapleIds || []);
+    removals.forEach(({ id, source }) => {
+      if (!id) return;
+      const packedKey = source === 'trip' ? `trip-staple:${id}` : `staple:${id}`;
+      delete nextPacked[packedKey];
+      if (source === 'trip') extraIds.add(id);
+      else globalIds.add(id);
+    });
+    return updateTrip(tripId, {
+      extraStaples: (trip.extraStaples || []).filter((s) => !extraIds.has(s.id)),
+      excludedStapleIds: [...globalIds],
       packed: nextPacked,
     });
   }
@@ -1543,23 +2302,42 @@ const PackStore = (() => {
         };
       });
 
-      const extras = (day.items || []).map((item) => {
+      const extras = [];
+      (day.events || []).forEach((ev) => {
+        (ev.items || []).forEach((item) => {
+          const key = itemKey(item.name);
+          const entry = remember(key, item.name, 'day');
+          extras.push({
+            id: item.id,
+            key,
+            name: item.name,
+            packed: entry.packed,
+            photoId: findItemPhotoId(item.name),
+            eventId: ev.id,
+            eventName: ev.name,
+          });
+        });
+      });
+      (day.items || []).forEach((item) => {
         const key = itemKey(item.name);
         const entry = remember(key, item.name, 'day');
-        return {
+        extras.push({
           id: item.id,
           key,
           name: item.name,
           packed: entry.packed,
           photoId: findItemPhotoId(item.name),
-        };
+        });
       });
 
       return {
         id: day.id,
         label: day.label,
+        date: day.date || null,
+        notes: day.notes || '',
         outfits,
         extras,
+        events: day.events || [],
       };
     });
 
@@ -1648,6 +2426,28 @@ const PackStore = (() => {
     listAccessorySubgroups,
     listAccessorySections,
     accessorySubgroup,
+    listPickerTabs,
+    isCustomClothingTab,
+    isCustomClothingGroup,
+    addClothingTab,
+    renameClothingTab,
+    removeClothingTab,
+    addClothingSubgroup,
+    renameClothingSubgroup,
+    removeClothingSubgroup,
+    addAccessoryCategory,
+    renameAccessoryCategory,
+    removeAccessoryCategory,
+    addAccessorySubgroup,
+    renameAccessorySubgroup,
+    removeAccessorySubgroup,
+    getSplitView,
+    setSplitView,
+    weekdayName,
+    formatDayDate,
+    parseISODate,
+    addDaysISO,
+    DAY_EVENT_PRESETS,
     listClothingTabs,
     listClothingSubgroups,
     listClothingItems,
@@ -1687,21 +2487,33 @@ const PackStore = (() => {
     addAccessory,
     updateAccessory,
     deleteAccessory,
+    reorderAccessories,
     listTrips,
     getTrip,
     createTrip,
     updateTrip,
     deleteTrip,
     setTripDays,
+    updateDay,
+    applyWeekdayNames,
+    addEventToDay,
+    updateDayEvent,
+    removeEventFromDay,
+    reorderDayEvents,
+    reorderDayItems,
+    reorderDayOutfits,
     addOutfitToDay,
     removeOutfitFromDay,
     addItemToDay,
     removeItemFromDay,
+    removeItemFromDayByName,
+    dayAllItemNames,
     getTripStaples,
     excludeStapleFromTrip,
     restoreStapleToTrip,
     addTripStaple,
     removeTripStaple,
+    removeTripStaples,
     setPacked,
     setPackedKeys,
     setOutfitPacked,

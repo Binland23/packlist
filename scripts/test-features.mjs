@@ -1,0 +1,156 @@
+/**
+ * Headless checks for category, trip-day, and staple APIs.
+ * Mocks localStorage then evaluates the browser scripts.
+ */
+import fs from 'node:fs';
+import vm from 'node:vm';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const store = new Map();
+const localStorage = {
+  getItem: (key) => (store.has(key) ? store.get(key) : null),
+  setItem: (key, value) => store.set(key, String(value)),
+  removeItem: (key) => store.delete(key),
+};
+
+const context = vm.createContext({
+  localStorage,
+  console,
+  Date,
+  Math,
+  Map,
+  Set,
+  Object,
+  Array,
+  String,
+  Number,
+  Boolean,
+  JSON,
+  Intl,
+});
+
+vm.runInContext(fs.readFileSync(path.join(root, 'js/categories.js'), 'utf8'), context);
+vm.runInContext(fs.readFileSync(path.join(root, 'js/storage.js'), 'utf8'), context);
+
+const PackStore = vm.runInContext('PackStore', context);
+const ClothingCatalog = vm.runInContext('ClothingCatalog', context);
+let failed = 0;
+
+function assert(cond, msg) {
+  if (!cond) {
+    failed += 1;
+    console.error(`FAIL: ${msg}`);
+  } else {
+    console.log(`ok  ${msg}`);
+  }
+}
+
+assert(ClothingCatalog.accessorySubgroupsFor('Jewelry').includes('Bracelets'), 'Jewelry has Bracelets type');
+assert(Object.keys(ClothingCatalog.ACCESSORY_TABS).includes('Hats'), 'Hats accessory heading exists');
+assert(Object.keys(ClothingCatalog.ACCESSORY_TABS).includes('Scarves'), 'Scarves accessory heading exists');
+assert(Object.keys(ClothingCatalog.ACCESSORY_TABS).includes('Belts'), 'Belts accessory heading exists');
+assert(!PackStore.listPickerTabs('women').includes('Men'), 'Picker tabs do not include Men');
+
+const cats = PackStore.listAccessoryCategories();
+assert(cats.includes('Hats') && cats.includes('Scarves') && cats.includes('Belts'), 'Default accessory folders include Hats, Scarves, Belts');
+
+const hat = PackStore.listAccessories().find((a) => a.category === 'Hats');
+assert(!!hat, 'Starter hat lives under Hats');
+const belt = PackStore.listAccessories().find((a) => a.name === 'Belt');
+assert(belt?.category === 'Belts', 'Starter belt lives under Belts');
+
+const addedTab = PackStore.addClothingTab('women', 'Formal');
+assert(addedTab.action === 'added', 'Can add a clothing heading');
+assert(PackStore.listClothingTabs('women').includes('Formal'), 'Formal heading is listed');
+
+const addedSub = PackStore.addClothingSubgroup('women', 'Tops', 'Tanks');
+assert(addedSub.action === 'added', 'Can add a type under Tops');
+assert(PackStore.listClothingSubgroups('women', 'Tops').includes('Tanks'), 'Tanks type is listed under Tops');
+
+PackStore.addClothingItem('women', 'Tops', 'Ribbed tank', 'Tanks');
+assert(PackStore.listClothingItems('women', 'Tops').includes('Ribbed tank'), 'Custom item saved under Tops');
+assert(PackStore.clothingSubgroup('women', 'Tops', 'Ribbed tank') === 'Tanks', 'Custom item assigned to Tanks');
+
+const accCat = PackStore.addAccessoryCategory('Hair');
+assert(accCat.action === 'added', 'Can add an accessory heading');
+const accSub = PackStore.addAccessorySubgroup('Jewelry', 'Anklets');
+assert(accSub.action === 'added', 'Can add Jewelry type');
+assert(PackStore.listAccessorySubgroups('Jewelry').includes('Anklets'), 'Anklets listed under Jewelry');
+
+const trip = PackStore.createTrip({ name: 'Lisbon', days: 3, startDate: '2026-08-17' });
+assert(trip.days[0].label === 'Monday', 'First day named Monday from calendar start');
+assert(trip.days[1].label === 'Tuesday', 'Second day named Tuesday');
+assert(trip.days[0].date === '2026-08-17', 'First day stores ISO date');
+
+PackStore.updateDay(trip.id, trip.days[0].id, { notes: 'Early flight' });
+PackStore.addEventToDay(trip.id, trip.days[0].id, { name: 'Brunch' });
+let day = PackStore.getTrip(trip.id).days[0];
+assert(day.notes === 'Early flight', 'Day notes persist');
+assert(day.events[0].name === 'Brunch', 'Brunch event added');
+
+PackStore.addItemToDay(trip.id, day.id, { name: 'White tee', eventId: day.events[0].id });
+day = PackStore.getTrip(trip.id).days[0];
+assert(day.events[0].items[0].name === 'White tee', 'Item grouped under brunch');
+PackStore.removeItemFromDayByName(trip.id, day.id, 'White tee', day.events[0].id);
+day = PackStore.getTrip(trip.id).days[0];
+assert(day.events[0].items.length === 0, 'Second tap removes the brunch item');
+
+PackStore.addItemToDay(trip.id, day.id, { name: 'Sun hat' });
+PackStore.addItemToDay(trip.id, day.id, { name: 'Scarf' });
+day = PackStore.getTrip(trip.id).days[0];
+PackStore.reorderDayItems(trip.id, day.id, [day.items[1].id, day.items[0].id]);
+day = PackStore.getTrip(trip.id).days[0];
+assert(day.items.map((i) => i.name).join(',') === 'Scarf,Sun hat', 'Day items reorder');
+
+PackStore.addEventToDay(trip.id, day.id, { name: 'Dinner' });
+day = PackStore.getTrip(trip.id).days[0];
+PackStore.reorderDayEvents(trip.id, day.id, [day.events[1].id, day.events[0].id]);
+day = PackStore.getTrip(trip.id).days[0];
+assert(day.events.map((e) => e.name).join(',') === 'Dinner,Brunch', 'Events reorder');
+
+const staples = PackStore.listStaples();
+const firstTwo = staples.slice(0, 2);
+PackStore.removeTripStaples(trip.id, firstTwo.map((s) => ({ id: s.id, source: 'global' })));
+const after = PackStore.getTripStaples(trip.id);
+assert(after.hidden.length >= 2, 'Bulk staple skip hides more than one item');
+assert(after.active.every((s) => s.id !== firstTwo[0].id), 'Removed staple is not active');
+
+const acc = PackStore.listAccessories();
+PackStore.reorderAccessories([acc[1].id, acc[0].id]);
+const acc2 = PackStore.listAccessories();
+assert(acc2[0].id === acc[1].id || acc2.findIndex((a) => a.id === acc[1].id) <= acc2.findIndex((a) => a.id === acc[0].id), 'Accessories can be reordered');
+
+PackStore.setSplitView({ enabled: true, left: 'Tops', right: 'Bottoms' });
+const split = PackStore.getSplitView();
+assert(split.enabled && split.left === 'Tops' && split.right === 'Bottoms', 'Split view prefs persist');
+
+const pack = PackStore.buildPackingList(trip.id);
+assert(pack.dayGroups[0].extras.some((e) => e.eventName === 'Dinner' || e.name === 'Scarf'), 'Packing list includes day extras and events');
+
+store.clear();
+const old = {
+  outfits: [],
+  staples: [{ id: 's1', name: 'Toothbrush', category: 'Toiletries' }],
+  accessories: [
+    { id: 'a1', name: 'Belt', category: 'Other' },
+    { id: 'a2', name: 'Sun hat', category: 'Other' },
+    { id: 'a3', name: 'Silk scarf', category: 'Other' },
+  ],
+  trips: [],
+  prefs: { accessoryCategories: ['Jewelry', 'Bags', 'Shoes', 'Other'] },
+};
+localStorage.setItem('packlist-data-v1', JSON.stringify(old));
+const migrated = PackStore.getState();
+const byName = Object.fromEntries(migrated.accessories.map((a) => [a.name, a.category]));
+assert(byName.Belt === 'Belts', 'Migration moves Belt into Belts');
+assert(byName['Sun hat'] === 'Hats', 'Migration moves hat into Hats');
+assert(byName['Silk scarf'] === 'Scarves', 'Migration moves scarf into Scarves');
+assert(migrated.prefs.accessoryCategories.includes('Hats'), 'Migration inserts Hats folder');
+
+if (failed) {
+  console.error(`\n${failed} check(s) failed`);
+  process.exit(1);
+}
+console.log('\nAll checks passed');
