@@ -99,6 +99,8 @@ const PackStore = (() => {
     clothingTabOrder: [],
     accessoryCatalog: {},
     splitView: { enabled: false, left: 'Tops', right: 'Bottoms' },
+    dayItemSpacing: 'close',
+    catAddFormHidden: null,
     migratedShoesToAccessories: false,
     migratedHatsScarvesBelts: false,
   };
@@ -143,6 +145,8 @@ const PackStore = (() => {
       clothingTabOrder,
       accessoryCatalog,
       splitView,
+      dayItemSpacing: p.dayItemSpacing === 'spaced' ? 'spaced' : 'close',
+      catAddFormHidden: p.catAddFormHidden === true ? true : p.catAddFormHidden === false ? false : null,
       migratedShoesToAccessories: !!p.migratedShoesToAccessories,
       migratedHatsScarvesBelts: !!p.migratedHatsScarvesBelts,
     };

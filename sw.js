@@ -1,5 +1,5 @@
 // Bump CACHE_VERSION whenever any precached file changes.
-const CACHE_VERSION = 'packlist-v16';
+const CACHE_VERSION = 'packlist-v17';
 
 const PRECACHE = [
   './',

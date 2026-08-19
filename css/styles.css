@@ -232,6 +232,7 @@ img {
   position: sticky;
   top: 0;
   z-index: 40;
+  flex-shrink: 0;
   padding: calc(var(--safe-top) + 10px) 16px 12px;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(14px);
@@ -388,6 +389,18 @@ img {
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.02em;
+}
+
+.section-title .section-meta {
+  margin-left: 8px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.section-head:has(.day-spacing-toggle) {
+  align-items: center;
 }
 
 .section-meta {
@@ -1006,10 +1019,10 @@ html[data-density="compact"] .item-thumb {
 }
 
 .day-outfits {
-  padding: 8px;
+  padding: 6px 8px 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .outfit-pick {
@@ -1429,6 +1442,7 @@ html[data-density="compact"] .item-thumb {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
+  overflow: hidden;
 }
 
 .staple-row .name {
@@ -1445,6 +1459,7 @@ html[data-density="compact"] .item-thumb {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .staple-row .del:hover {
@@ -1531,9 +1546,14 @@ body.sorting {
 
 .library-edit .name {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .library-edit-hint {
+  flex-shrink: 0;
   font-size: 12px;
   font-weight: 600;
   color: var(--ink-faint);
@@ -1844,6 +1864,35 @@ body.sorting {
   border-top: 1px solid var(--border);
 }
 
+.cat-custom.collapsed {
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.cat-custom-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 36px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-ink);
+}
+
+.cat-custom.collapsed .cat-custom-toggle {
+  margin-bottom: 0;
+}
+
+.cat-custom.collapsed .cat-custom-body {
+  display: none;
+}
+
+.cat-custom-body > label:first-child,
 .cat-custom > label:first-child {
   display: block;
   margin-bottom: 6px;
@@ -1914,8 +1963,8 @@ body.sorting {
 .day-extras {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 2px 2px 4px;
+  gap: 1px;
+  padding: 0;
 }
 
 .day-drop-target {
@@ -1951,22 +2000,24 @@ body.sorting {
 .day-item-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: var(--bg-elevated);
+  gap: 4px;
+  padding: 3px 4px;
+  min-height: 36px;
+  border-radius: 8px;
+  background: transparent;
 }
 
 .day-item-row .name {
   flex: 1;
   font-size: 14px;
   font-weight: 500;
+  line-height: 1.25;
   min-width: 0;
 }
 
 .day-item-row .remove {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 8px;
   color: var(--ink-faint);
   display: inline-flex;
@@ -2461,6 +2512,11 @@ textarea.input {
   border-top: 1px solid var(--border);
 }
 
+.cat-picker-split .cat-custom.collapsed {
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
 .sheet:has(.cat-picker-split) {
   height: min(92dvh, 900px);
 }
@@ -2471,11 +2527,23 @@ textarea.input {
   flex-direction: column;
 }
 
+#app.split-clothes-app,
+#app:has(.main.split-clothes-page) {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
 .main.split-clothes-page {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
   padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 8px);
+}
+
+.main.split-clothes-page .segments {
+  flex-shrink: 0;
 }
 
 .main.split-clothes-page .clothes-section {
@@ -2483,6 +2551,9 @@ textarea.input {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  margin-bottom: 0;
+  animation: none;
+  overflow: hidden;
 }
 
 .main.split-clothes-page .page-hint,
@@ -2496,26 +2567,113 @@ textarea.input {
   min-height: 0;
   align-items: stretch;
   margin-top: 4px;
+  overflow: hidden;
 }
 
 .clothes-split .split-pane {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .clothes-split .split-pane-body {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   margin-top: 8px;
   padding-bottom: 8px;
+}
+
+.clothes-split .stack {
+  gap: 6px;
+}
+
+.clothes-split .staple-row.library-row {
+  padding: 4px 2px;
+  gap: 2px;
+  border-radius: 10px;
+}
+
+.clothes-split .drag-handle,
+.clothes-split .staple-row .del {
+  width: 32px;
+  height: 32px;
+}
+
+.clothes-split .library-edit {
+  gap: 6px;
+}
+
+.clothes-split .item-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
 }
 
 .main.split-clothes-page .sticky-cta {
   position: static;
   flex-shrink: 0;
   padding-top: 8px;
+}
+
+.day-spacing-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.day-spacing-toggle .split-toggle {
+  min-height: 32px;
+  padding: 4px 10px;
+}
+
+html[data-day-spacing="spaced"] .day-outfits {
+  padding: 8px;
+  gap: 8px;
+}
+
+html[data-day-spacing="spaced"] .day-extras {
+  gap: 6px;
+  padding: 2px 2px 4px;
+}
+
+html[data-day-spacing="spaced"] .day-item-row {
+  gap: 8px;
+  padding: 8px 10px;
+  min-height: 0;
+  border-radius: 12px;
+  background: var(--bg-elevated);
+}
+
+html[data-day-spacing="spaced"] .day-item-row .name {
+  line-height: 1.5;
+}
+
+html[data-day-spacing="spaced"] .day-item-row .remove,
+html[data-day-spacing="spaced"] .day-item-row .drag-handle {
+  width: 32px;
+  height: 32px;
+}
+
+html[data-day-spacing="spaced"] .day-events-stack,
+html[data-day-spacing="spaced"] .day-outfit-stack {
+  gap: 8px;
+}
+
+html[data-day-spacing="spaced"] .day-event {
+  padding: 6px;
+}
+
+html[data-day-spacing="spaced"] .day-event-head {
+  padding: 2px 4px 6px;
 }
 
 .day-header-btn {
@@ -2544,21 +2702,21 @@ textarea.input {
 .day-outfit-stack {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .day-event {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 6px;
+  padding: 4px;
 }
 
 .day-event-head {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 4px 6px;
+  padding: 0 2px 2px;
 }
 
 .day-event-head strong {
@@ -2615,8 +2773,8 @@ textarea.input {
 }
 
 .day-item-row .drag-handle {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
 }
 @media (min-width: 520px) {
   body {
