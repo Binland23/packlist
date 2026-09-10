@@ -2827,3 +2827,121 @@ textarea.input {
     background: var(--bg);
   }
 }
+
+/* Shared interaction language: quiet lift, tactile press, spring selection. */
+:root {
+  --motion-fast: 160ms;
+  --motion-settle: 320ms;
+  --control-ease: cubic-bezier(.22, 1, .36, 1);
+}
+#app { margin-inline: auto; }
+button, .photo-area, .settings-select, .input, .textarea {
+  touch-action: manipulation;
+  transition: background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease, border-color var(--motion-fast) ease,
+    box-shadow var(--motion-settle) var(--control-ease),
+    transform var(--motion-settle) var(--control-ease);
+}
+button { -webkit-user-select: none; user-select: none; }
+button:focus-visible, select:focus-visible, .photo-area:focus-within {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+/* Keep outlines visible inside rounded, clipped list containers. */
+.settings-row:focus-visible, .check-item:focus-visible { outline-offset: -4px; }
+button:disabled { opacity: .38; cursor: not-allowed; transform: none; box-shadow: none; }
+button:active:not(:disabled) { transform: scale(.97); }
+.btn-primary { box-shadow: 0 3px 0 color-mix(in srgb, var(--ink) 65%, transparent), var(--shadow-sm); }
+.btn-primary:hover { background: color-mix(in srgb, var(--ink) 88%, var(--bg)); }
+.btn-primary:active { box-shadow: 0 1px 0 color-mix(in srgb, var(--ink) 65%, transparent); }
+.btn-secondary { box-shadow: var(--shadow-sm); }
+.btn svg, .icon-btn svg, .chev, .photo-placeholder-icon {
+  transition: transform var(--motion-settle) var(--ease-spring), color var(--motion-fast);
+}
+.btn-danger:focus-visible, .del:focus-visible, .remove:focus-visible { outline-color: var(--danger); }
+.settings-stepper { gap: 4px; padding: 3px; border: 1px solid var(--border); border-radius: 15px; background: var(--bg-elevated); }
+.settings-stepper button { width: 40px; height: 40px; border-radius: 11px; }
+.settings-stepper output { min-width: 24px; }
+.item-chip button { width: 32px; height: 32px; }
+.staple-row .del, .outfit-pick .remove { min-width: 44px; min-height: 44px; }
+.segment, .gender-btn, .cat-pill { min-height: 44px; }
+.input-row .input { min-width: 0; }
+.input:focus, .textarea:focus, .settings-select:focus-visible {
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow-sm);
+}
+input[type="checkbox"] { accent-color: var(--accent); width: 20px; height: 20px; }
+.tab { position: relative; isolation: isolate; color: var(--ink-soft); }
+.tab::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit;
+  background: var(--accent-soft); opacity: 0; transform: scale(.82);
+  transition: opacity 200ms ease, transform 360ms var(--ease-spring);
+}
+.tab.active { background: transparent; }
+.tab.active::before { opacity: 1; transform: scale(1); }
+.tab.active svg { transform: translateY(-2px); }
+.tab.active span { transform: translateY(-1px); }
+.tab span { transition: transform var(--motion-settle) var(--control-ease); }
+.segment.active, .gender-btn.active { animation: selection-in 300ms var(--control-ease); }
+.cat-tab::after {
+  content: ''; position: absolute; left: 12px; right: 12px; bottom: 0;
+  height: 3px; background: var(--accent); border-radius: 3px 3px 0 0;
+  transform: scaleX(0); transition: transform 300ms var(--ease-spring);
+}
+.cat-tab.active::after { height: 3px; transform: scaleX(1); }
+.cat-pill.picked { box-shadow: inset 0 0 0 1px var(--accent); animation: selection-in 280ms var(--ease-spring); }
+.toggle { width: 50px; height: 30px; box-shadow: inset 0 1px 3px var(--border); transition: background-color 220ms ease, border-color 220ms ease; }
+.toggle::after { width: 24px; height: 24px; box-shadow: 0 2px 5px #0002; transition: transform 360ms var(--ease-spring), width 160ms ease, background-color 180ms ease; }
+.toggle.on::after { transform: translateX(20px); }
+.settings-row:active .toggle::after { width: 28px; }
+.settings-row:active .toggle.on::after { transform: translateX(16px); }
+.settings-row[aria-checked="true"] { background: color-mix(in srgb, var(--accent-soft) 20%, var(--surface)); }
+.theme-card { position: relative; }
+.theme-card::after {
+  content: '✓'; position: absolute; top: 9px; right: 9px;
+  width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%;
+  background: var(--ink); color: var(--bg); font-size: 13px; font-weight: 700;
+  opacity: 0; transform: scale(.5); transition: opacity 180ms, transform 320ms var(--ease-spring);
+}
+.theme-card.selected::after { opacity: 1; transform: scale(1); }
+.theme-card.selected { box-shadow: 0 0 0 2px var(--accent-soft); }
+.theme-dot { transition: transform 360ms var(--ease-spring); }
+.theme-card.selected .theme-dot { transform: scale(1.16); }
+.check-item .checkbox svg { opacity: 0; transform: scale(.5); transition: opacity 140ms ease, transform 320ms var(--ease-spring); }
+.check-item.done .checkbox svg { opacity: 1; transform: scale(1); }
+.check-item.done .checkbox { box-shadow: 0 0 0 3px color-mix(in srgb, var(--sage-soft) 65%, transparent); }
+.check-label { transition: color 200ms; }
+.pack-summary .pct { font-variant-numeric: tabular-nums; }
+.sheet { border: 1px solid var(--border-strong); border-bottom: 0; }
+.sheet-body { overscroll-behavior: contain; }
+.sheet-header { padding-bottom: 12px; }
+.sheet-backdrop { backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+.settings-group { animation: rise-in 360ms var(--control-ease) both; }
+.settings-group:nth-child(2) { animation-delay: 35ms; }
+.settings-group:nth-child(3) { animation-delay: 70ms; }
+@keyframes selection-in { from { opacity: .65; scale: .96; } to { opacity: 1; scale: 1; } }
+@media (hover: hover) and (pointer: fine) {
+  .btn:not(:disabled):hover, .card.pressable:hover, .outfit-tile:hover, .theme-card:hover {
+    transform: translateY(-2px); box-shadow: var(--shadow-md);
+  }
+  .icon-btn:hover svg { transform: scale(1.1); }
+  #back-btn:hover svg { transform: translateX(-3px); }
+  #header-action:hover svg { transform: rotate(90deg); }
+  #sheet-close:hover svg { transform: rotate(90deg); }
+  .settings-row.nav:hover .chev { transform: translateX(3px); color: var(--accent); }
+  .settings-row[data-toggle]:hover, .segment:not(.active):hover, .gender-btn:not(.active):hover,
+  .settings-stepper button:not(:disabled):hover { background: var(--accent-soft); color: var(--accent-ink); }
+  .tab:not(.active):hover::before { opacity: .45; transform: scale(.94); }
+  .add-outfit-btn:hover svg { transform: rotate(90deg); }
+  .cat-pill:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
+  .photo-area:hover .photo-placeholder-icon { transform: translateY(-3px) rotate(-5deg); }
+  .del:hover, .remove:hover { background: var(--danger-soft); color: var(--danger); }
+}
+html[data-reduce="1"] *, html[data-reduce="1"] *::before, html[data-reduce="1"] *::after { scroll-behavior: auto !important; }
+html[data-reduce="1"] button { transform: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  * { scroll-behavior: auto !important; }
+  button { transform: none !important; }
+}
+html[data-theme="midnight"] .toggle:not(.on)::after,
+html[data-theme="ember"] .toggle:not(.on)::after { background: var(--ink-soft); }

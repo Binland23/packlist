@@ -27,6 +27,25 @@
   let suppressSplitToggleUntil = 0;
   let tripStapleSelecting = false;
   const tripStapleSelected = new Set();
+  let sheetReturnFocus = null;
+  let sheetExit = null;
+  const motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
+  const reduceMotion = () => motionQuery.matches || document.documentElement.dataset.reduce === '1';
+  function animate(el, frames, options = {}) {
+    if (!el || reduceMotion()) return null;
+    return el.animate(frames, { duration: 300, easing: 'cubic-bezier(.22,1,.36,1)', ...options });
+  }
+
+  // Delegated feedback also covers controls created inside pickers and sheets.
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('button');
+    if (!button || button.disabled || reduceMotion()) return;
+    animate(button, [{ scale: '.97' }, { scale: '1.015', offset: .65 }, { scale: '1' }]);
+  }, true);
+  function stopMotion() {
+    if (reduceMotion()) document.getAnimations().forEach(animation => animation.finish());
+  }
+  motionQuery.addEventListener('change', stopMotion);
 
   // ——— Utils ———
   function escapeHtml(str) {
@@ -40,6 +59,7 @@
   function toast(msg) {
     toastEl.textContent = msg;
     toastEl.classList.remove('hidden');
+    animate(toastEl, [{ opacity: 0, translate: '0 10px' }, { opacity: 1, translate: '0 0' }]);
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => toastEl.classList.add('hidden'), 2200);
   }
@@ -77,6 +97,7 @@
     const theme = THEMES.find((t) => t.id === prefs.theme) || THEMES[0];
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.content = theme.wash;
+    stopMotion();
   }
 
   function tripToolsHtml() {
@@ -477,17 +498,35 @@
 
   // ——— Sheet ———
   function openSheet(title, bodyHtml, { onClose } = {}) {
+    if (sheetExit) { sheetExit.cancel(); sheetExit = null; }
+    if (sheet.classList.contains('hidden')) sheetReturnFocus = document.activeElement;
+    sheet.inert = false;
+    $('#app').inert = true;
     sheetOnClose = onClose || null;
     sheetTitle.textContent = title;
     sheetBody.innerHTML = bodyHtml;
     sheet.classList.remove('hidden');
     sheetBackdrop.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
+    animate(sheet, [{ translate: '0 100%', opacity: .5 }, { translate: '0 0', opacity: 1 }], { duration: 380 });
+    animate(sheetBackdrop, [{ opacity: 0 }, { opacity: 1 }]);
+    sheetClose.focus({ preventScroll: true });
   }
 
   function closeSheet() {
-    sheet.classList.add('hidden');
-    sheetBackdrop.classList.add('hidden');
+    if (sheet.classList.contains('hidden') || sheet.inert) return;
+    sheet.inert = true;
+    $('#app').inert = false;
+    const finish = () => {
+      sheet.classList.add('hidden');
+      sheetBackdrop.classList.add('hidden');
+      sheetExit = null;
+    };
+    sheetExit = animate(sheet, [{ translate: '0 0', opacity: 1 }, { translate: '0 100%', opacity: 0 }], { duration: 200 });
+    animate(sheetBackdrop, [{ opacity: 1 }, { opacity: 0 }], { duration: 200 });
+    if (sheetExit) sheetExit.onfinish = finish;
+    else finish();
+    if (sheetReturnFocus?.isConnected) sheetReturnFocus.focus({ preventScroll: true });
     document.body.style.overflow = '';
     const cb = sheetOnClose;
     sheetOnClose = null;
@@ -2020,7 +2059,7 @@
     return [...new Set((keys || []).filter(Boolean))];
   }
 
-  function refreshPackView(tripId) {
+  async function refreshPackView(tripId) {
     const y = window.scrollY;
     const x = window.scrollX;
     const trip = PackStore.getTrip(tripId);
@@ -2028,7 +2067,14 @@
       render();
       return;
     }
-    renderPackView(trip);
+    const focusKey = document.activeElement?.dataset.key;
+    await renderPackView(trip);
+    const target = focusKey && $$('.check-item', main).find(row => row.dataset.key === focusKey);
+    if (target) {
+      target.focus({ preventScroll: true });
+      animate($('.checkbox', target), [{ scale: '.8' }, { scale: '1' }]);
+    }
+    animate($('.pack-summary .pct'), [{ scale: '1.08' }, { scale: '1' }]);
     window.scrollTo(x, y);
     requestAnimationFrame(() => window.scrollTo(x, y));
   }
@@ -2095,7 +2141,7 @@
     btn.setAttribute('aria-pressed', item.packed ? 'true' : 'false');
     btn.innerHTML = `
       <span class="checkbox" aria-hidden="true">
-        ${item.packed ? CHECK_SVG : ''}
+        ${CHECK_SVG}
       </span>
       ${itemThumbHtml(item.photoId, 'pack-thumb')}
       <span class="check-label">
@@ -3330,7 +3376,7 @@
             <div class="theme-grid">
               ${THEMES.map(
                 (t) => `
-                <button type="button" class="theme-card${prefs.theme === t.id ? ' selected' : ''}" data-theme="${t.id}">
+                <button type="button" class="theme-card${prefs.theme === t.id ? ' selected' : ''}" data-theme="${t.id}" aria-pressed="${prefs.theme === t.id}">
                   <div class="theme-swatch" style="background:${t.wash}">
                     <span class="theme-dot" style="background:${t.accent}"></span>
                   </div>
@@ -3427,7 +3473,7 @@
 
     function settingToggle(key, title, note, on) {
       return `
-        <button type="button" class="settings-row" data-toggle="${key}">
+        <button type="button" class="settings-row" role="switch" aria-checked="${!!on}" data-toggle="${key}">
           <div class="settings-row-copy"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(note)}</span></div>
           <span class="toggle${on ? ' on' : ''}" aria-hidden="true"></span>
         </button>
@@ -3450,9 +3496,9 @@
         <div class="settings-row">
           <div class="settings-row-copy"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(note)}</span></div>
           <div class="settings-stepper">
-            <button type="button" data-step="${key}" data-dir="-1" aria-label="Decrease">−</button>
+            <button type="button" data-step="${key}" data-dir="-1" ${value <= min ? 'disabled' : ''} aria-label="Decrease ${escapeHtml(title)}">−</button>
             <output>${value}</output>
-            <button type="button" data-step="${key}" data-dir="1" aria-label="Increase">+</button>
+            <button type="button" data-step="${key}" data-dir="1" ${value >= max ? 'disabled' : ''} aria-label="Increase ${escapeHtml(title)}">+</button>
           </div>
         </div>
       `;
@@ -3502,7 +3548,12 @@
         btn.onclick = () => {
           PackStore.setPref('theme', btn.dataset.theme);
           applyAppearance();
-          renderSettingsPreserveSearch();
+          Object.assign(prefs, PackStore.getPrefs());
+          $$('[data-theme]', root).forEach(card => {
+            const selected = card.dataset.theme === prefs.theme;
+            card.classList.toggle('selected', selected);
+            card.setAttribute('aria-pressed', String(selected));
+          });
         };
       });
       $$('[data-toggle]', root).forEach((btn) => {
@@ -3511,15 +3562,16 @@
           const next = !PackStore.getPrefs()[key];
           PackStore.setPref(key, next);
           applyAppearance();
-          const knob = btn.querySelector('.toggle');
-          if (knob) knob.classList.toggle('on', next);
+          prefs[key] = next;
+          btn.setAttribute('aria-checked', String(next));
+          $('.toggle', btn).classList.toggle('on', next);
         };
       });
       $$('[data-select]', root).forEach((sel) => {
         sel.onchange = () => {
           PackStore.setPref(sel.dataset.select, sel.value);
           applyAppearance();
-          renderSettingsPreserveSearch();
+          Object.assign(prefs, PackStore.getPrefs());
         };
       });
       $$('[data-step]', root).forEach((btn) => {
@@ -3528,7 +3580,11 @@
           const dir = Number(btn.dataset.dir);
           const cur = Number(PackStore.getPrefs()[key]) || 1;
           PackStore.setPref(key, Math.max(1, Math.min(30, cur + dir)));
-          renderSettingsPreserveSearch();
+          prefs[key] = PackStore.getPrefs()[key];
+          const stepper = btn.closest('.settings-stepper');
+          $('output', stepper).textContent = prefs[key];
+          $$('button', stepper).forEach(control => control.disabled = Number(control.dataset.dir) < 0 ? prefs[key] <= 1 : prefs[key] >= 30);
+          animate($('output', stepper), [{ opacity: .4, translate: `0 ${dir * 6}px` }, { opacity: 1, translate: '0 0' }]);
         };
       });
       $$('[data-nav]', root).forEach((btn) => {
@@ -3551,22 +3607,6 @@
       $$('[data-action]', root).forEach((btn) => {
         btn.onclick = () => runSettingAction(btn.dataset.action);
       });
-    }
-
-    function renderSettingsPreserveSearch() {
-      const input = $('#settings-search');
-      const q = input?.value || '';
-      const keepSearchFocus = document.activeElement === input;
-      renderSettings();
-      const next = $('#settings-search');
-      if (!next) return;
-      next.value = q;
-      if (q) next.dispatchEvent(new Event('input'));
-      if (keepSearchFocus) {
-        next.focus();
-        const len = next.value.length;
-        next.setSelectionRange(len, len);
-      }
     }
 
     const search = $('#settings-search');
@@ -3959,6 +3999,12 @@
   );
 
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' && !sheet.classList.contains('hidden') && !sheet.inert) {
+      const controls = $$('button, input, select, textarea, [tabindex="0"]', sheet).filter(el => !el.disabled && el.getClientRects().length);
+      const first = controls[0], last = controls.at(-1);
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+    }
     if (e.key === 'Escape' && !sheet.classList.contains('hidden')) {
       closeSheet();
     }
