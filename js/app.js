@@ -421,6 +421,9 @@
       params[decodeURIComponent(k)] = decodeURIComponent(v || '');
     });
 
+    if (parts[0] === 'trips' && parts[1] === 'past') {
+      return { name: 'past-trips', params: {} };
+    }
     if (parts[0] === 'trip' && parts[1]) {
       return { name: 'trip', params: { id: parts[1], view: params.view || 'plan' } };
     }
@@ -467,7 +470,7 @@
 
   function syncTabs() {
     const tabRoute =
-      route.name === 'trip' || route.name === 'trips'
+      route.name === 'trip' || route.name === 'trips' || route.name === 'past-trips'
         ? 'trips'
         : route.name === 'outfit' || route.name === 'outfits' || route.name === 'accessories' || route.name === 'clothes'
           ? 'outfits'
@@ -1159,8 +1162,60 @@
   }
 
   // ——— Render: Trips list ———
+  function tripDateBit(trip, { archived = false } = {}) {
+    const firstDate = PackStore.tripStartDate(trip);
+    const lastDate = PackStore.tripEndDate(trip);
+    if (firstDate && lastDate && lastDate !== firstDate) {
+      return `${PackStore.formatDayDate(firstDate)}–${PackStore.formatDayDate(lastDate)}`;
+    }
+    if (firstDate) return PackStore.formatDayDate(firstDate);
+    return archived ? 'No dates' : null;
+  }
+
+  function appendTripCard(list, trip, { archived = false } = {}) {
+    const pack = PackStore.buildPackingList(trip.id);
+    const outfitCount = trip.days.reduce((n, d) => n + (d.outfitIds?.length || 0), 0);
+    const extraCount = trip.days.reduce(
+      (n, d) =>
+        n +
+        (d.items?.length || 0) +
+        (d.events || []).reduce((m, ev) => m + (ev.items?.length || 0), 0),
+      0
+    );
+    const pct = pack.total ? Math.round((pack.packedCount / pack.total) * 100) : 0;
+    const dateBit = tripDateBit(trip, { archived });
+    const extrasBit = extraCount ? ` · ${plural(extraCount, 'extra', 'extras')}` : '';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `card pressable${archived ? ' trip-card-past' : ''}`;
+    btn.innerHTML = `
+      <div class="card-body">
+        <p class="card-title">${escapeHtml(trip.name)}</p>
+        <p class="card-sub">${dateBit ? `${escapeHtml(dateBit)} · ` : ''}${plural(trip.days.length, 'day', 'days')} · ${plural(
+          outfitCount,
+          'outfit',
+          'outfits'
+        )}${extrasBit} · ${pack.packedCount}/${pack.total} packed</p>
+        <div class="progress-bar" aria-hidden="true"><span style="width:${pct}%"></span></div>
+      </div>
+    `;
+    btn.onclick = () => navigate(`trip/${trip.id}`);
+    list.appendChild(btn);
+  }
+
+  function pastTripsButtonHtml(count, { id = 'past-trips-btn' } = {}) {
+    if (!count) return '';
+    return `<button type="button" class="btn btn-secondary btn-block" id="${id}">Past trips (${count})</button>`;
+  }
+
+  function bindPastTripsButton(id = 'past-trips-btn') {
+    const btn = $(`#${id}`);
+    if (btn) btn.onclick = () => navigate('trips/past');
+  }
+
   function renderTrips() {
-    const trips = PackStore.listTrips();
+    const trips = PackStore.listUpcomingTrips();
+    const archivedCount = PackStore.listArchivedTrips().length;
     setChrome({
       title: 'Trips',
       eyebrow: 'Packlist',
@@ -1178,66 +1233,72 @@
           <h2>Your next trip starts here</h2>
           <p>Save outfits once, then pick them for each day. Staples come along — drop anything this trip doesn’t need.</p>
           <button type="button" class="btn btn-primary" id="empty-new-trip">Plan a trip</button>
+          ${archivedCount ? `<div class="empty-archive">${pastTripsButtonHtml(archivedCount, { id: 'empty-past-trips' })}</div>` : ''}
         </div>
       `;
       $('#empty-new-trip').onclick = () => showNewTripSheet();
+      bindPastTripsButton('empty-past-trips');
       return;
     }
 
     main.innerHTML = `
       <div class="section">
-        ${hintHtml('trips', 'Open a trip to plan days, add extras, and skip staples you don’t need this time.')}
+        ${hintHtml('trips', 'Open a trip to plan days, add extras, and skip staples you don’t need this time. Finished trips move to Past trips after their last day.')}
         <div class="section-head">
-          <h2 class="section-title">Upcoming & recent</h2>
+          <h2 class="section-title">Upcoming</h2>
           <span class="section-meta">${plural(trips.length, 'trip', 'trips')}</span>
         </div>
         <div class="stack" id="trip-list"></div>
       </div>
       <div class="sticky-cta">
-        <button type="button" class="btn btn-primary btn-block" id="new-trip-btn">New trip</button>
+        <div class="stack">
+          ${pastTripsButtonHtml(archivedCount)}
+          <button type="button" class="btn btn-primary btn-block" id="new-trip-btn">New trip</button>
+        </div>
       </div>
     `;
 
     const list = $('#trip-list');
-    trips.forEach((trip) => {
-      const pack = PackStore.buildPackingList(trip.id);
-      const outfitCount = trip.days.reduce((n, d) => n + (d.outfitIds?.length || 0), 0);
-      const extraCount = trip.days.reduce(
-        (n, d) =>
-          n +
-          (d.items?.length || 0) +
-          (d.events || []).reduce((m, ev) => m + (ev.items?.length || 0), 0),
-        0
-      );
-      const pct = pack.total ? Math.round((pack.packedCount / pack.total) * 100) : 0;
-      const firstDate = trip.days.find((d) => d.date)?.date;
-      const lastDate = [...trip.days].reverse().find((d) => d.date)?.date;
-      const dateBit =
-        firstDate && lastDate && lastDate !== firstDate
-          ? `${PackStore.formatDayDate(firstDate)}–${PackStore.formatDayDate(lastDate)}`
-          : firstDate
-            ? PackStore.formatDayDate(firstDate)
-            : null;
-      const extrasBit = extraCount ? ` · ${plural(extraCount, 'extra', 'extras')}` : '';
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'card pressable';
-      btn.innerHTML = `
-        <div class="card-body">
-          <p class="card-title">${escapeHtml(trip.name)}</p>
-          <p class="card-sub">${dateBit ? `${escapeHtml(dateBit)} · ` : ''}${plural(trip.days.length, 'day', 'days')} · ${plural(
-            outfitCount,
-            'outfit',
-            'outfits'
-          )}${extrasBit} · ${pack.packedCount}/${pack.total} packed</p>
-          <div class="progress-bar" aria-hidden="true"><span style="width:${pct}%"></span></div>
-        </div>
-      `;
-      btn.onclick = () => navigate(`trip/${trip.id}`);
-      list.appendChild(btn);
-    });
+    trips.forEach((trip) => appendTripCard(list, trip));
 
     $('#new-trip-btn').onclick = () => showNewTripSheet();
+    bindPastTripsButton();
+    bindHints();
+  }
+
+  function renderPastTrips() {
+    const trips = PackStore.listArchivedTrips();
+    setChrome({
+      title: 'Past trips',
+      eyebrow: 'Archive',
+      showBack: true,
+    });
+    backBtn.onclick = () => navigate('trips');
+
+    if (!trips.length) {
+      main.innerHTML = `
+        <div class="empty">
+          <p class="empty-kicker">Archive</p>
+          <h2>No past trips yet</h2>
+          <p>When a trip’s last day has passed, it moves here. You can still open it, add dates to bring it back, or delete it.</p>
+        </div>
+      `;
+      return;
+    }
+
+    main.innerHTML = `
+      <div class="section">
+        ${hintHtml('past-trips', 'Trips land here after their last day, or if they never had dates. Open one to look it up, add a future start date to bring it back, or delete it.')}
+        <div class="section-head">
+          <h2 class="section-title">Past trips</h2>
+          <span class="section-meta">${plural(trips.length, 'trip', 'trips')}</span>
+        </div>
+        <div class="stack" id="trip-list"></div>
+      </div>
+    `;
+
+    const list = $('#trip-list');
+    trips.forEach((trip) => appendTripCard(list, trip, { archived: true }));
     bindHints();
   }
 
@@ -1438,17 +1499,24 @@
       return;
     }
 
+    const archived = PackStore.isTripArchived(trip);
     const view = route.params.view === 'pack' ? 'pack' : 'plan';
     setChrome({
       title: trip.name,
-      eyebrow: view === 'pack' ? 'Packing list' : 'Trip plan',
+      eyebrow: archived
+        ? view === 'pack'
+          ? 'Past trip · Packing list'
+          : 'Past trip'
+        : view === 'pack'
+          ? 'Packing list'
+          : 'Trip plan',
       showBack: true,
       action: {
         label: 'Trip options',
         onClick: () => showTripOptions(trip),
       },
     });
-    backBtn.onclick = () => navigate('trips');
+    backBtn.onclick = () => navigate(PackStore.isTripArchived(trip) ? 'trips/past' : 'trips');
 
     if (view === 'pack') {
       await renderPackView(trip);
@@ -2181,6 +2249,7 @@
   }
 
   function showTripOptions(trip) {
+    const archived = PackStore.isTripArchived(trip);
     openSheet(
       'Trip options',
       `
@@ -2197,7 +2266,11 @@
         <div class="field">
           <label for="edit-trip-start">Start date</label>
           <input class="input" id="edit-trip-start" type="date" value="${escapeHtml(trip.days[0]?.date || '')}" />
-          <p class="hint">Days are listed as weekday and date from this start (Monday, Sep 28). Custom names stay unless they were still “Day 1”.</p>
+          <p class="hint">${
+            archived
+              ? 'This trip is in Past trips. Add a start date that hasn’t ended yet to move it back to Upcoming.'
+              : 'Days are listed as weekday and date from this start (Monday, Sep 28). Custom names stay unless they were still “Day 1”.'
+          }</p>
         </div>
         <button type="submit" class="btn btn-primary btn-block">Save</button>
       </form>
@@ -2224,7 +2297,8 @@
       PackStore.deleteTrip(trip.id);
       closeSheet();
       toast('Trip deleted');
-      navigate('trips');
+      const stillArchived = PackStore.listArchivedTrips().length;
+      navigate(archived && stillArchived ? 'trips/past' : 'trips');
     };
   }
 
@@ -3968,6 +4042,9 @@
         break;
       case 'settings':
         renderSettings();
+        break;
+      case 'past-trips':
+        renderPastTrips();
         break;
       default:
         renderTrips();

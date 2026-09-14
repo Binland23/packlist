@@ -1830,8 +1830,60 @@ const PackStore = (() => {
   }
 
   // ——— Trips ———
+  function tripDates(trip) {
+    return (trip?.days || [])
+      .map((d) => d.date)
+      .filter((value) => parseISODate(value))
+      .sort();
+  }
+
+  function tripStartDate(trip) {
+    return tripDates(trip)[0] || null;
+  }
+
+  function tripEndDate(trip) {
+    const dates = tripDates(trip);
+    return dates.length ? dates[dates.length - 1] : null;
+  }
+
+  function isTripArchived(trip, today = toISODate(new Date())) {
+    const end = tripEndDate(trip);
+    return !end || end < today;
+  }
+
+  function compareISODate(a, b) {
+    if (!a && !b) return 0;
+    if (!a) return 1;
+    if (!b) return -1;
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+
   function listTrips() {
     return load().trips.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  }
+
+  function listUpcomingTrips() {
+    return listTrips()
+      .filter((trip) => !isTripArchived(trip))
+      .sort((a, b) => {
+        const byStart = compareISODate(tripStartDate(a), tripStartDate(b));
+        if (byStart) return byStart;
+        return (b.updatedAt || 0) - (a.updatedAt || 0);
+      });
+  }
+
+  function listArchivedTrips() {
+    return listTrips()
+      .filter((trip) => isTripArchived(trip))
+      .sort((a, b) => {
+        const endA = tripEndDate(a);
+        const endB = tripEndDate(b);
+        if (!endA && !endB) return (b.updatedAt || 0) - (a.updatedAt || 0);
+        if (!endA) return 1;
+        if (!endB) return -1;
+        if (endA !== endB) return endA > endB ? -1 : 1;
+        return (b.updatedAt || 0) - (a.updatedAt || 0);
+      });
   }
 
   function getTrip(id) {
@@ -2605,6 +2657,11 @@ const PackStore = (() => {
     deleteAccessory,
     reorderAccessories,
     listTrips,
+    listUpcomingTrips,
+    listArchivedTrips,
+    isTripArchived,
+    tripStartDate,
+    tripEndDate,
     getTrip,
     createTrip,
     updateTrip,
