@@ -205,6 +205,63 @@ assert(
 const pack = PackStore.buildPackingList(trip.id);
 assert(pack.dayGroups[0].extras.some((e) => e.eventName === 'Dinner' || e.name === 'Scarf'), 'Packing list includes day extras and events');
 
+const today = PackStore.toISODate(new Date());
+const yesterday = PackStore.addDaysISO(today, -1);
+const lastWeek = PackStore.addDaysISO(today, -7);
+const nextWeek = PackStore.addDaysISO(today, 7);
+
+const currentTrip = PackStore.createTrip({ name: 'Happening now', days: 2, startDate: today });
+assert(!PackStore.isTripArchived(currentTrip), 'Trip that includes today stays on Upcoming');
+assert(
+  PackStore.listUpcomingTrips().some((t) => t.id === currentTrip.id),
+  'Current trip is listed as upcoming'
+);
+
+const futureTrip = PackStore.createTrip({ name: 'Next week', days: 3, startDate: nextWeek });
+assert(!PackStore.isTripArchived(futureTrip), 'Future trip is not archived');
+assert(
+  PackStore.listUpcomingTrips()[0].id === currentTrip.id,
+  'Upcoming trips sort soonest start first'
+);
+
+const todayOnly = PackStore.createTrip({ name: 'Today only', days: 1, startDate: today });
+assert(!PackStore.isTripArchived(todayOnly), 'Trip ending today stays on Upcoming');
+
+const pastTrip = PackStore.createTrip({ name: 'Last week', days: 2, startDate: lastWeek });
+assert(PackStore.isTripArchived(pastTrip), 'Trip whose last day has passed is archived');
+assert(
+  PackStore.listUpcomingTrips().every((t) => t.id !== pastTrip.id),
+  'Past trip is hidden from Upcoming'
+);
+assert(
+  PackStore.listArchivedTrips().some((t) => t.id === pastTrip.id),
+  'Past trip is listed in the archive'
+);
+
+const endedYesterday = PackStore.createTrip({ name: 'Just ended', days: 1, startDate: yesterday });
+assert(PackStore.isTripArchived(endedYesterday), 'Trip that ended yesterday is archived');
+
+const legacy = PackStore.createTrip({ name: 'Old undated', days: 2, startDate: lastWeek });
+PackStore.updateTrip(legacy.id, {
+  days: PackStore.getTrip(legacy.id).days.map((d, i) => ({ ...d, date: null, label: `Day ${i + 1}` })),
+});
+assert(PackStore.isTripArchived(PackStore.getTrip(legacy.id)), 'Undated trips are archived');
+assert(
+  PackStore.listUpcomingTrips().every((t) => t.id !== legacy.id),
+  'Undated trip is not on the upcoming list'
+);
+const archivedIds = PackStore.listArchivedTrips().map((t) => t.id);
+assert(archivedIds.includes(legacy.id), 'Undated trip is in the archive');
+assert(archivedIds[0] === endedYesterday.id, 'Most recently ended trip is first in the archive');
+assert(archivedIds.at(-1) === legacy.id, 'Undated trips sort last in the archive');
+
+PackStore.setTripDays(legacy.id, 2, nextWeek);
+assert(!PackStore.isTripArchived(PackStore.getTrip(legacy.id)), 'Adding a future start date brings a trip back');
+assert(
+  PackStore.listUpcomingTrips().some((t) => t.id === legacy.id),
+  'Re-dated trip returns to Upcoming'
+);
+
 store.clear();
 const old = {
   outfits: [],

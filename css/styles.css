@@ -649,6 +649,15 @@ img {
   max-width: 32ch;
 }
 
+.empty-archive {
+  margin-top: 12px;
+  max-width: 280px;
+}
+
+.trip-card-past .card-title {
+  color: var(--ink-soft);
+}
+
 /* ——— Buttons ——— */
 .btn {
   display: inline-flex;
